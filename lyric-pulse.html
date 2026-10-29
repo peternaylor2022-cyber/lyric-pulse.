@@ -45,7 +45,7 @@ body {
 .world {
   position: fixed; inset: 0; overflow: hidden;
   perspective: var(--persp); perspective-origin: 50% 58%;
-  padding-block: 16px calc(var(--peek) + 14px + env(safe-area-inset-bottom, 0px));
+  padding-block: calc(16px + env(safe-area-inset-top, 0px)) calc(var(--peek) + 14px + env(safe-area-inset-bottom, 0px));
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
   background: radial-gradient(80% 50% at 50% 100%, #150f22, #000 70%);
@@ -1012,7 +1012,7 @@ function updateLift() {
   const th = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--tilt-open')) * Math.PI / 180;
   const vh = world.clientHeight, dh = deck.offsetHeight;
   const top = oy + (vh - dh * Math.cos(th) - oy) * P / (P + dh * Math.sin(th));
-  const lift = Math.max(0, 16 + 0.47 * cam.offsetHeight - top / 2);
+  const lift = Math.max(0, parseFloat(cs.paddingTop) + 0.47 * cam.offsetHeight - top / 2);
   document.documentElement.style.setProperty('--lift', (-lift) + 'px');
 }
 function resize() {
