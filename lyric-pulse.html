@@ -1,3 +1,5 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Lyric Pulse</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -18,6 +20,7 @@
   --violet: #9b82ff;
   --danger: #ff8f8f;
   --led: #b04dff;
+  --spotify: #1ed760;
   --spill: rgba(176, 77, 255, .18);
   --peek: 66px;
   --grip: 46px;
@@ -33,6 +36,7 @@
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { height: 100%; background: var(--bg); }
 body {
   margin: 0;
@@ -223,7 +227,7 @@ body.playing .arm { transform: rotate(26deg); }
 .silk { font: 500 10px/1 var(--mono); letter-spacing: .2em; text-transform: uppercase; color: var(--muted); text-shadow: 0 1px 0 #000; }
 
 /* recessed screens: a dark glass pane set into a raised bezel */
-.vu, .lcd, textarea {
+.vu, .lcd, textarea, .field {
   background: #05030a;
   box-shadow:
     inset 0 0 18px rgba(0, 0, 0, .9), inset 0 2px 4px #000,
@@ -296,6 +300,32 @@ body.playing .arm { transform: rotate(26deg); }
 .status { grid-column: 1 / -1; margin: 2px 0 0; font: 400 11px/1.55 var(--mono); color: var(--muted); }
 .status.err { color: var(--danger); }
 .tip { grid-column: 1 / -1; margin: 0; font: 400 11px/1.55 var(--mono); color: var(--muted); }
+.pad:disabled { opacity: .4; cursor: default; pointer-events: none; }
+
+/* Spotify: a source module that follows whatever is playing */
+.spot {
+  grid-column: 1 / -1; display: grid; gap: 12px; margin-top: 4px;
+  padding: 12px 14px 14px; border-radius: 12px;
+  background: #08060d;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, .9), inset 0 0 0 1px #1d1729, 0 1px 0 rgba(255, 255, 255, .05);
+}
+.spot .shead { margin: 0; min-height: 20px; }
+.spot-led { width: 8px; height: 8px; border-radius: 50%; background: #2a2239; box-shadow: inset 0 1px 1px #000; }
+.spot.live .spot-led { background: var(--spotify); box-shadow: 0 0 10px var(--spotify), 0 0 2px #fff; }
+.spot-setup, .spot-live { display: grid; gap: 12px; min-width: 0; }
+.steps { margin: 0; padding-left: 18px; font: 400 11px/1.55 var(--mono); color: var(--muted); }
+.steps a { color: #dcd0ff; }
+.uri { display: flex; gap: 10px; align-items: center; min-width: 0; }
+.uri code { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font: 400 11px/1.45 var(--mono); color: #dcd0ff; }
+.field { display: block; width: 100%; height: 40px; padding: 0 12px; color: #dcd0ff; caret-color: var(--accent); border: 1px solid #000; border-radius: 8px; font: 400 12.5px/1 var(--mono); }
+.field:focus-visible { outline: 2px solid var(--violet); outline-offset: 7px; }
+.now { display: flex; gap: 12px; align-items: center; min-width: 0; }
+.now img { flex: none; width: 52px; height: 52px; border-radius: 6px; object-fit: cover; background: #05030a; box-shadow: 0 0 0 3px #17121f, 0 0 0 4px #352b4c, 0 6px 10px rgba(0, 0, 0, .6); }
+.now div { display: grid; gap: 3px; min-width: 0; }
+.now b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 15px/1.25 var(--display); color: var(--fg); }
+.now span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 11px/1.3 var(--mono); color: var(--muted); }
+.spot .pads { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.spot .status { margin: 0; }
 
 /* waveform display */
 .lcd {
@@ -318,6 +348,7 @@ body.playing .arm { transform: rotate(26deg); }
 }
 .lcd:focus-within { outline: 2px solid var(--violet); outline-offset: 7px; }
 .lcd input:focus { outline: none; }
+.lcd input:disabled { cursor: default; }
 .lcd input::-webkit-slider-runnable-track { height: 100%; background: transparent; }
 .lcd input::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none; width: 12px; height: var(--tlh); border: 0; border-radius: 0;
@@ -431,6 +462,25 @@ textarea:focus-visible { outline: 2px solid var(--violet); outline-offset: 7px; 
             <label class="pad" for="songFile"><input class="sr" id="songFile" type="file" accept="audio/*"><span>Load song</span></label>
             <button class="pad" id="demoBtn" type="button">Demo track</button>
             <p class="status" id="status" aria-live="polite"></p>
+
+            <div class="spot" id="spot">
+              <div class="shead"><span class="silk">Spotify</span><i class="spot-led" aria-hidden="true"></i></div>
+              <div class="spot-setup" id="spSetup">
+                <ol class="steps">
+                  <li>Create an app at <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a> and tick Web API. The app's owner needs Spotify Premium.</li>
+                  <li>Add this Redirect URI to the app:</li>
+                </ol>
+                <div class="uri"><code id="spUri"></code><button class="pad sm" id="spCopy" type="button">Copy</button></div>
+                <ol class="steps" start="3"><li>Paste the app's Client ID, then connect.</li></ol>
+                <input class="field" id="spClient" type="text" autocomplete="off" spellcheck="false" placeholder="Client ID" aria-label="Spotify Client ID">
+                <button class="pad" id="spConnect" type="button">Connect Spotify</button>
+              </div>
+              <div class="spot-live" id="spLive" hidden>
+                <div class="now"><img id="spArt" alt="" hidden><div><b id="spTitle">Nothing playing yet</b><span id="spArtist">Start a song in Spotify</span></div></div>
+                <div class="pads"><button class="pad on" id="spFollow" type="button" aria-pressed="true"><i class="led"></i>Follow</button><button class="pad" id="spOut" type="button">Log out</button></div>
+              </div>
+              <p class="status" id="spStatus" aria-live="polite"></p>
+            </div>
           </div>
 
           <div class="screen">
@@ -479,6 +529,8 @@ const seek = $('seek'), lyricsEl = $('lyrics'), statusEl = $('status');
 const playBtn = $('playBtn'), playIc = $('playIc'), playTx = $('playTx'), restartBtn = $('restartBtn'), soundBtn = $('soundBtn');
 const crowdBtn = $('crowdBtn'), cleanBtn = $('cleanBtn'), exitBtn = $('exitClean'), demoBtn = $('demoBtn');
 const fileIn = $('songFile'), applyBtn = $('applyBtn'), popEl = $('pop'), popOut = $('popOut');
+const spot = $('spot'), spSetup = $('spSetup'), spLive = $('spLive'), spUri = $('spUri'), spCopy = $('spCopy'), spClient = $('spClient'), spConnectBtn = $('spConnect');
+const spArt = $('spArt'), spTitle = $('spTitle'), spArtist = $('spArtist'), spFollow = $('spFollow'), spOut = $('spOut'), spStatus = $('spStatus');
 
 const ICON_PLAY = '<svg width="13" height="13" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 1.5v11l9-5.5z" fill="currentColor"/></svg>';
 const ICON_PAUSE = '<svg width="13" height="13" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 1.5h3v11H3zM8 1.5h3v11H8z" fill="currentColor"/></svg>';
@@ -577,7 +629,9 @@ function prepWords(l) {
   l.words = toks.map((text, i) => {
     const t0 = l.t + span * (acc / total);
     acc += text.length + 1;
-    return { text, chars: Array.from(text), i, t0, l0: maxNorm(t0, t0 + 0.45), _p: false };
+    // Spotify tracks have no audio here, so lean on the words: the last word of a line and long words land harder
+    const accent = track && track.spotify ? (i === toks.length - 1 ? 0.12 : 0) + (text.length > 5 ? 0.06 : 0) - 0.05 : 0;
+    return { text, chars: Array.from(text), i, t0, l0: clamp(maxNorm(t0, t0 + 0.45) + accent, 0, 1), _p: false };
   });
 }
 function parseLRC(text, dur) {
@@ -624,7 +678,7 @@ function getCtx() {
   }
   return ctx;
 }
-const songTime = () => playing ? Math.min(track.duration, startOff + (ctx.currentTime - startCtx)) : pausedAt;
+const songTime = () => track.spotify ? spClock() : playing ? Math.min(track.duration, startOff + (ctx.currentTime - startCtx)) : pausedAt;
 function stopSrc() {
   if (!src) return;
   const s = src; src = null; s.onended = null;
@@ -639,7 +693,7 @@ async function lockScreen(on) {
   } catch (e) { wl = null; }
 }
 function play() {
-  if (!track || playing) return;
+  if (!track || playing || track.spotify) return;
   const c = getCtx();
   c.resume();
   if (!track.ab) {
@@ -655,10 +709,13 @@ function play() {
   lockScreen(true); updateUI();
 }
 function pause() {
-  if (!playing) return;
+  if (!playing || track.spotify) return;
   pausedAt = songTime(); stopSrc(); playing = false; lockScreen(false); updateUI();
 }
-const togglePlay = () => playing ? pause() : play();
+function togglePlay() {
+  if (track && track.spotify) { setStatus('Play and pause in Spotify. Lyric Pulse follows along.'); return; }
+  if (playing) pause(); else play();
+}
 function seekTo(t) {
   if (!track) return;
   const was = playing;
@@ -668,10 +725,10 @@ function seekTo(t) {
   if (was) play();
 }
 function setTrack(tr, lrc) {
-  if (playing) pause();
+  if (playing) { if (track.spotify) { playing = false; lockScreen(false); } else pause(); }
   pausedAt = 0;
-  const e = buildNorm(tr.chs, tr.sr);
-  tr.norm = e.norm; tr.rate = e.rate; track = tr;
+  if (!tr.norm) { const e = buildNorm(tr.chs, tr.sr); tr.norm = e.norm; tr.rate = e.rate; }
+  track = tr;
   seek.max = tr.duration; seek.value = 0;
   $('tTot').textContent = fmt(tr.duration); $('tNow').textContent = '0:00';
   if (lrc !== undefined) lyricsEl.value = lrc;
@@ -683,6 +740,7 @@ function updateUI() {
   playTx.textContent = playing ? 'Pause' : 'Play';
   playBtn.classList.toggle('on', playing);
   document.body.classList.toggle('playing', playing);
+  playBtn.disabled = restartBtn.disabled = seek.disabled = !!(track && track.spotify);
 }
 
 /* ---------- layout of one lyric line ---------- */
@@ -975,6 +1033,16 @@ function frame(now) {
         }
       }
     }
+  } else if (track && track.spotify) {
+    // title card while lyrics load, or for a song without any
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    let fs = clamp(W * 0.085, 20, 48);
+    g.font = '700 ' + fs + 'px ' + FONT;
+    const tw = g.measureText(track.name).width;
+    if (tw > W * 0.84) { fs *= W * 0.84 / tw; g.font = '700 ' + fs + 'px ' + FONT; }
+    g.fillStyle = 'rgba(242,238,252,0.92)'; g.fillText(track.name, W / 2, H * 0.44);
+    g.fillStyle = 'rgba(242,238,252,0.6)'; g.font = '500 ' + clamp(W * 0.032, 11, 15) + 'px ' + MONO;
+    g.fillText(track.artist.toUpperCase(), W / 2, H * 0.44 + fs * 0.9);
   } else {
     g.fillStyle = 'rgba(242,238,252,0.55)'; g.font = '300 ' + clamp(W * 0.05, 14, 22) + 'px ' + FONT;
     g.textAlign = 'center'; g.textBaseline = 'middle';
@@ -985,7 +1053,7 @@ function frame(now) {
   if (!playing) {
     g.fillStyle = 'rgba(242,238,252,0.5)'; g.font = '500 11px ' + MONO;
     g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText('TAP TO PLAY', W / 2, H - 28);
+    g.fillText(track && track.spotify ? 'PAUSED IN SPOTIFY' : 'TAP TO PLAY', W / 2, H - 28);
   }
 
   const sec = Math.floor(t);
@@ -1056,10 +1124,12 @@ crowdBtn.addEventListener('click', () => {
   crowdBtn.setAttribute('aria-pressed', crowdOn ? 'true' : 'false');
 });
 demoBtn.addEventListener('click', () => {
+  if (following) setFollow(false);
   const d = getDemo(); setTrack(d, demoLrc);
   setStatus('Demo track · ' + fmt(d.duration) + ' · made in your browser with original words');
 });
 applyBtn.addEventListener('click', () => {
+  if (track && track.spotify) { track.norm = lyricEnergy(track.duration, lyricsEl.value); computeCols(); }
   applyLyrics();
   setStatus((track ? track.name + ' · ' : '') + lines.filter(l => l.text).length + ' lyric lines applied');
 });
@@ -1075,7 +1145,8 @@ fileIn.addEventListener('change', async e => {
     const raw = await f.arrayBuffer();
     const ab = await getCtx().decodeAudioData(raw);
     const chs = Array.from({ length: ab.numberOfChannels }, (_, i) => ab.getChannelData(i));
-    const keep = lyricsEl.value.trim() && lyricsEl.value !== demoLrc;
+    const keep = lyricsEl.value.trim() && lyricsEl.value !== demoLrc && !(track && track.spotify);
+    if (following) setFollow(false);
     setTrack({ name: f.name, duration: ab.duration, ab, chs, sr: ab.sampleRate }, keep ? undefined : '');
     setStatus(f.name + ' · ' + fmt(ab.duration) + (keep ? '' : ' · paste its lyrics below, then press Apply'));
   } catch (err) {
@@ -1111,6 +1182,218 @@ document.addEventListener('keydown', e => {
   if (clean()) setClean(false); else if (isOpen()) setDeck(false);
 });
 
+/* ---------- Spotify: follow what's playing, pull its synced lyrics from LRCLIB ---------- */
+const SP_ACCOUNTS = 'https://accounts.spotify.com', SP_API = 'https://api.spotify.com/v1';
+const SP_SCOPES = 'user-read-currently-playing user-read-playback-state';
+const LRCLIB = 'https://lrclib.net/api', lrcInit = { headers: { 'Lrclib-Client': 'Lyric Pulse' } };
+const spRedirect = location.origin + location.pathname;
+const store = {
+  get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set: (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} },
+};
+let sp = null, spNow = null, following = false, spTimer = 0, spBusy = false, spRefreshing = null, lyricReq = 0;
+let spNote = ['', false], spAlert = false;
+try { sp = JSON.parse(store.get('lp.sp.auth')); } catch (e) {}
+
+const b64url = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const randomKey = n => b64url(crypto.getRandomValues(new Uint8Array(n)));
+function setSpStatus(msg, err) { spStatus.textContent = msg; spStatus.classList.toggle('err', !!err); }
+// spTell sets the standing note for the current song; spSay shows something passing that the note replaces once music comes back
+function spTell(msg, err) { spNote = [msg, !!err]; spAlert = false; setSpStatus(msg, err); }
+function spSay(msg, err) { spAlert = true; setSpStatus(msg, err); }
+
+// Spotify sign-in needs a real web address in a top-level tab
+function spBlocker() {
+  if (location.protocol === 'file:') return 'Spotify needs this page on a web address, not opened as a file. Host it (GitHub Pages works) or serve it at http://127.0.0.1.';
+  if (window.top !== window.self) return "Spotify sign-in can't run inside this preview. Open the hosted copy of Lyric Pulse to connect.";
+  if (!window.isSecureContext || !window.crypto || !crypto.subtle) return 'Spotify needs a secure address: https, or http://127.0.0.1 on your computer.';
+  return '';
+}
+
+// sign-in with PKCE: no client secret, so it runs entirely in the browser
+async function spConnect() {
+  const id = spClient.value.trim();
+  if (!/^[0-9a-f]{32}$/i.test(id)) { spTell("That doesn't look like a Client ID. Copy the 32-character ID from your app's settings.", true); spClient.focus(); return; }
+  store.set('lp.sp.client', id);
+  const verifier = randomKey(48), state = randomKey(12);
+  store.set('lp.sp.verifier', verifier); store.set('lp.sp.state', state);
+  const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+  location.assign(SP_ACCOUNTS + '/authorize?' + new URLSearchParams({
+    client_id: id, response_type: 'code', redirect_uri: spRedirect, scope: SP_SCOPES,
+    code_challenge_method: 'S256', code_challenge: challenge, state,
+  }));
+}
+async function spToken(params) {
+  const r = await fetch(SP_ACCOUNTS + '/api/token', {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(Object.assign({ client_id: store.get('lp.sp.client') || '' }, params)),
+  });
+  if (!r.ok) throw new Error('auth');
+  const j = await r.json();
+  sp = { token: j.access_token, refresh: j.refresh_token || (sp && sp.refresh), exp: Date.now() + j.expires_in * 1000 };
+  store.set('lp.sp.auth', JSON.stringify(sp));
+}
+const spRefresh = () => spRefreshing || (spRefreshing = spToken({ grant_type: 'refresh_token', refresh_token: sp.refresh }).finally(() => { spRefreshing = null; }));
+async function spGet(path) {
+  if (sp.exp - Date.now() < 60000) await spRefresh();
+  const get = () => fetch(SP_API + path, { headers: { Authorization: 'Bearer ' + sp.token } });
+  let r = await get();
+  if (r.status === 401) { await spRefresh(); r = await get(); }
+  return r;
+}
+
+// Spotify reports the position every few seconds; between reports the clock runs on locally
+const spPredict = at => spNow.progress + (spNow.on ? (at - spNow.at) / 1000 : 0);
+function spClock() { return spNow ? clamp(spPredict(performance.now()), 0, track.duration) : 0; }
+function spHold() { if (spNow) spNow = { progress: spPredict(performance.now()), at: performance.now(), on: false }; }
+
+async function poll() {
+  clearTimeout(spTimer);
+  if (!sp || !following || spBusy) return;
+  let wait = 3000;
+  if (!document.hidden) {
+    spBusy = true;
+    try {
+      const t0 = performance.now(), r = await spGet('/me/player/currently-playing');
+      const at = (t0 + performance.now()) / 2;
+      if (!following || !sp) return;
+      if (r.status === 204) spIdle('Nothing is playing on Spotify right now.');
+      else if (r.ok) spUpdate(await r.json(), at);
+      else if (r.status === 429) wait = (+r.headers.get('Retry-After') || 10) * 1000;
+      else if (r.status === 403) { wait = 30000; spSay("Spotify refused access. In your app's settings, add your Spotify account under User Management. The app's owner needs Premium.", true); }
+      else spSay('Spotify answered with error ' + r.status + '. Trying again…', true);
+    } catch (e) {
+      if (e.message === 'auth') { spSignOut('Spotify ended the session. Connect again.'); return; }
+      wait = 8000; spSay("Can't reach Spotify. Trying again…", true);
+    } finally { spBusy = false; }
+  }
+  if (following) spTimer = setTimeout(poll, spNow && spNow.on ? wait : Math.max(wait, 5000));
+}
+function spIdle(msg) {
+  spHold();
+  if (playing && track.spotify) { playing = false; lockScreen(false); updateUI(); }
+  spSay(msg);
+}
+function spUpdate(j, at) {
+  const it = j.item;
+  if (!it || j.currently_playing_type !== 'track') {
+    spIdle(j.currently_playing_type === 'ad' ? 'An ad is playing. The lyrics come back with the music.' : 'Spotify is playing something without lyrics, like a podcast.');
+    return;
+  }
+  const id = it.id || it.uri, prog = (j.progress_ms || 0) / 1000, on = !!j.is_playing;
+  if (!track || track.spotifyId !== id) { spNow = { progress: prog, at, on }; spLoad(it, id); }
+  else {
+    // only jump on a real seek or drift, so words don't stutter on every report
+    if (on !== spNow.on || Math.abs(spPredict(at) - prog) > 0.35) spNow = { progress: prog, at, on };
+    if (spAlert) spTell(...spNote);
+  }
+  if (playing !== on) { playing = on; lockScreen(on); updateUI(); }
+}
+function spLoad(it, id) {
+  const album = it.album || {}, imgs = (album.images || []).slice().sort((a, b) => a.width - b.width);
+  const art = imgs.find(i => i.width >= 120) || imgs[imgs.length - 1];
+  const artists = (it.artists || []).map(a => a.name);
+  const tr = { name: it.name, artist: artists.join(', '), album: album.name || '', duration: it.duration_ms / 1000, spotify: true, spotifyId: id, rate: 40 };
+  tr.norm = lyricEnergy(tr.duration, '');
+  setTrack(tr, '');
+  spTitle.textContent = tr.name; spArtist.textContent = tr.artist;
+  spArt.hidden = !art; if (art) spArt.src = art.url;
+  setStatus('Spotify · ' + tr.name + ' · ' + fmt(tr.duration));
+  spTell('Looking up lyrics…');
+  const req = ++lyricReq;
+  findLyrics(tr, artists[0] || '').then(j => {
+    if (req !== lyricReq || track !== tr) return;
+    if (j && j.instrumental) { spTell('Instrumental. No lyrics to show.'); return; }
+    const lrc = j ? j.syncedLyrics || j.plainLyrics || '' : '';
+    if (!lrc) { spTell('No lyrics found for this song. Paste them in the lyrics screen and press Apply.'); return; }
+    tr.norm = lyricEnergy(tr.duration, lrc);
+    lyricsEl.value = lrc; applyLyrics(); computeCols();
+    spTell(j.syncedLyrics ? 'Synced lyrics from LRCLIB.' : 'LRCLIB only has untimed lyrics for this one, so the lines are spread across the song.');
+  }).catch(() => { if (req === lyricReq && track === tr) spTell("Couldn't reach LRCLIB for lyrics. Paste them in the lyrics screen instead.", true); });
+}
+
+// "Song - Remastered 2011" and "(feat. Someone)" rarely match LRCLIB's titles
+const plainTitle = s => s.replace(/\s+-\s+.*\b(remaster(ed)?|version|edit|mix|live|mono|stereo)\b.*$/i, '').replace(/\s*[([](feat|with)\.?\s[^)\]]*[)\]]/gi, '').trim();
+async function findLyrics(tr, artist) {
+  const r = await fetch(LRCLIB + '/get?' + new URLSearchParams({ track_name: tr.name, artist_name: artist, album_name: tr.album, duration: Math.round(tr.duration) }), lrcInit);
+  if (r.ok) return r.json();
+  if (r.status !== 404) throw new Error('lrclib ' + r.status);
+  const s = await fetch(LRCLIB + '/search?' + new URLSearchParams({ track_name: plainTitle(tr.name), artist_name: artist }), lrcInit);
+  if (!s.ok) throw new Error('lrclib ' + s.status);
+  const hits = (await s.json()).filter(h => Math.abs(h.duration - tr.duration) < 4);
+  return hits.find(h => h.syncedLyrics) || hits.find(h => h.plainLyrics || h.instrumental) || null;
+}
+
+// Spotify doesn't share the audio, so loudness is estimated: lines that repeat (the hook) hit hardest, and a steady pulse keeps the room moving
+function lyricEnergy(dur, lrc) {
+  const rate = 40, n = Math.max(1, Math.ceil(dur * rate)), seg = new Float32Array(n).fill(0.45);
+  const ls = parseLRC(lrc, dur), count = {};
+  const key = s => s.toLowerCase().replace(/[^\p{L}\p{N} ]/gu, '').trim();
+  for (const l of ls) { const k = key(l.text); count[k] = (count[k] || 0) + 1; }
+  ls.forEach((l, i) => {
+    const k = key(l.text), shout = /!/.test(l.text) || (/\p{Lu}/u.test(l.text) && l.text === l.text.toUpperCase());
+    const e = k ? 0.46 + 0.36 * Math.min(1, (count[k] - 1) / 2) + (shout ? 0.1 : 0) : 0.45;
+    const end = ls[i + 1] ? ls[i + 1].t : dur;
+    seg.fill(e, clamp(Math.floor(l.t * rate), 0, n), clamp(Math.ceil(end * rate), 0, n));
+  });
+  const norm = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    let s = 0, c = 0;
+    for (let j = Math.max(0, i - 20); j <= Math.min(n - 1, i + 20); j++) { s += seg[j]; c++; }
+    norm[i] = clamp((s / c) * (0.62 + 0.38 * Math.exp(-((i / rate) % 0.5) * 9)), 0, 1);
+  }
+  return norm;
+}
+
+function setFollow(on) {
+  following = on && !!sp;
+  spFollow.classList.toggle('on', following);
+  spFollow.setAttribute('aria-pressed', following ? 'true' : 'false');
+  spot.classList.toggle('live', following);
+  clearTimeout(spTimer);
+  if (following) { pause(); spSay('Checking what Spotify is playing…'); poll(); return; }
+  spHold();
+  if (playing && track.spotify) { playing = false; lockScreen(false); updateUI(); }
+  if (sp) spSay('Stopped following. Press Follow to pick Spotify back up.');
+}
+function spRender() { spSetup.hidden = !!sp; spLive.hidden = !sp; }
+function spSignOut(msg) {
+  setFollow(false);
+  sp = null; store.set('lp.sp.auth', null);
+  spRender(); spTell(msg);
+}
+async function spInit() {
+  spUri.textContent = spRedirect;
+  spClient.value = store.get('lp.sp.client') || '';
+  spRender();
+  const block = spBlocker();
+  if (block) { spConnectBtn.disabled = true; spTell(block); return; }
+  const q = new URLSearchParams(location.search);
+  if (q.has('code') || q.has('error')) {
+    history.replaceState(null, '', spRedirect + location.hash);
+    if (q.has('error')) spTell(q.get('error') === 'access_denied' ? 'Spotify sign-in was cancelled.' : 'Spotify sign-in failed (' + q.get('error') + ').', true);
+    else if (!q.get('state') || q.get('state') !== store.get('lp.sp.state')) spTell("Sign-in couldn't be verified. Press Connect Spotify again.", true);
+    else {
+      spTell('Finishing sign-in…');
+      try { await spToken({ grant_type: 'authorization_code', code: q.get('code'), redirect_uri: spRedirect, code_verifier: store.get('lp.sp.verifier') || '' }); }
+      catch (e) { spTell('Spotify sign-in failed. Check the Client ID, and that the Redirect URI in your app matches the one above exactly.', true); }
+    }
+    store.set('lp.sp.verifier', null); store.set('lp.sp.state', null);
+    spRender();
+  }
+  if (sp) setFollow(true);
+}
+spConnectBtn.addEventListener('click', () => { spConnect().catch(() => spTell('Could not start Spotify sign-in. Try again.', true)); });
+spClient.addEventListener('keydown', e => { if (e.key === 'Enter') spConnectBtn.click(); });
+spFollow.addEventListener('click', () => setFollow(!following));
+spOut.addEventListener('click', () => spSignOut('Logged out of Spotify.'));
+spCopy.addEventListener('click', () => {
+  const pick = () => { const r = document.createRange(); r.selectNodeContents(spUri); const s = getSelection(); s.removeAllRanges(); s.addRange(r); };
+  const done = () => { spCopy.textContent = 'Copied'; setTimeout(() => { spCopy.textContent = 'Copy'; }, 1500); };
+  if (navigator.clipboard) navigator.clipboard.writeText(spRedirect).then(done, pick); else pick();
+});
+document.addEventListener('visibilitychange', () => { if (!document.hidden && following) poll(); });
+
 /* ---------- start ---------- */
 resize();
 sizeVU();
@@ -1118,6 +1401,7 @@ popEl.style.setProperty('--p', ((strength - 0.5) / 1.5 * 100) + '%');
 const d0 = getDemo();
 setTrack(d0, demoLrc);
 setStatus('Demo track · ' + fmt(d0.duration) + ' · made in your browser with original words');
+spInit();
 Promise.all([document.fonts.load('300 40px "Bricolage Grotesque"'), document.fonts.load('800 40px "Bricolage Grotesque"'), document.fonts.load('500 12px "DM Mono"')])
   .then(() => { epoch++; }).catch(() => {});
 requestAnimationFrame(frame);
