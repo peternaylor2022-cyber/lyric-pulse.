@@ -1,6 +1,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Lyric Pulse</title>
+<title>Tunely</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -713,7 +713,7 @@ function pause() {
   pausedAt = songTime(); stopSrc(); playing = false; lockScreen(false); updateUI();
 }
 function togglePlay() {
-  if (track && track.spotify) { setStatus('Play and pause in Spotify. Lyric Pulse follows along.'); return; }
+  if (track && track.spotify) { setStatus('Play and pause in Spotify. Tunely follows along.'); return; }
   if (playing) pause(); else play();
 }
 function seekTo(t) {
@@ -1185,7 +1185,7 @@ document.addEventListener('keydown', e => {
 /* ---------- Spotify: follow what's playing, pull its synced lyrics from LRCLIB ---------- */
 const SP_ACCOUNTS = 'https://accounts.spotify.com', SP_API = 'https://api.spotify.com/v1';
 const SP_SCOPES = 'user-read-currently-playing user-read-playback-state';
-const LRCLIB = 'https://lrclib.net/api', lrcInit = { headers: { 'Lrclib-Client': 'Lyric Pulse' } };
+const LRCLIB = 'https://lrclib.net/api', lrcInit = { headers: { 'Lrclib-Client': 'Tunely' } };
 const spRedirect = location.origin + location.pathname;
 const store = {
   get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } },
@@ -1205,7 +1205,7 @@ function spSay(msg, err) { spAlert = true; setSpStatus(msg, err); }
 // Spotify sign-in needs a real web address in a top-level tab
 function spBlocker() {
   if (location.protocol === 'file:') return 'Spotify needs this page on a web address, not opened as a file. Host it (GitHub Pages works) or serve it at http://127.0.0.1.';
-  if (window.top !== window.self) return "Spotify sign-in can't run inside this preview. Open the hosted copy of Lyric Pulse to connect.";
+  if (window.top !== window.self) return "Spotify sign-in can't run inside this preview. Open the hosted copy of Tunely to connect.";
   if (!window.isSecureContext || !window.crypto || !crypto.subtle) return 'Spotify needs a secure address: https, or http://127.0.0.1 on your computer.';
   return '';
 }
