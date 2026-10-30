@@ -1157,7 +1157,7 @@ function hexHSL(hex) {
   return [h, s * 100, l * 100];
 }
 function wordHSL(w) {
-  if (S.color === 'loud') { const h = hueOf(w.lw); return [h, 55 + 45 * w.lw, 72 + 18 * w.lw, h]; }
+  if (S.color === 'loud' || S.color === 'blend') { const h = hueOf(w.lw); return [h, 55 + 45 * w.lw, 72 + 18 * w.lw, h]; }
   if (S.color === 'white') return [270, 0, 97, 270];
   if (S.color === 'rainbow') { const h = (w.i * 47 + time * 50) % 360; return [h, 95, 72, h]; }
   const hex = S.color === 'custom' ? S.custom : COLORS[S.color] || COLORS.pink;
@@ -1212,7 +1212,8 @@ function drawWord(w, a, out) {
       g.fillText(w.chars[i], x0 + w.xs[i], Math.sin(tt * 2.4 + i * 0.75 + w.i) * size * amp + ly);
     }
   };
-  const nt = Math.round(3 * w.lw * (0.4 + live) * Math.min(glow, 1.5));
+  const blend = S.color === 'blend' && blendPat;
+  const nt = blend ? 0 : Math.round(3 * w.lw * (0.4 + live) * Math.min(glow, 1.5));
   g.globalCompositeOperation = 'lighter';
   for (let k = nt; k >= 1; k--) {
     g.fillStyle = 'hsl(' + ((gh + k * 14) % 360) + ',' + es + '%,58%)';
@@ -1224,9 +1225,16 @@ function drawWord(w, a, out) {
     g.fillStyle = 'rgba(255,0,170,.7)'; g.save(); g.translate(size * 0.06, 0); pass(0, 0.5); g.restore();
   }
   g.globalCompositeOperation = 'source-over';
-  g.shadowColor = 'hsl(' + gh + ',' + es + '%,' + (S.color === 'white' ? 85 : 58) + '%)';
-  g.shadowBlur = (6 + 40 * w.lw * (0.5 + live)) * dpr * glow;
-  g.fillStyle = 'hsl(' + hue + ',' + sat + '%,' + lig + '%)';
+  if (blend) {
+    // the letters are cut from the brightened scene behind them; the pattern stays pinned to the screen however the word moves
+    blendPat.setTransform(g.getTransform().invertSelf());
+    g.shadowColor = 'rgba(255,255,255,.45)'; g.shadowBlur = (4 + 20 * w.lw * (0.5 + live)) * dpr * glow;
+    g.fillStyle = blendPat;
+  } else {
+    g.shadowColor = 'hsl(' + gh + ',' + es + '%,' + (S.color === 'white' ? 85 : 58) + '%)';
+    g.shadowBlur = (6 + 40 * w.lw * (0.5 + live)) * dpr * glow;
+    g.fillStyle = 'hsl(' + hue + ',' + sat + '%,' + lig + '%)';
+  }
   pass(0, 1);
   g.restore();
 }
@@ -1328,6 +1336,7 @@ function frame(now) {
   drawBG(dt);
   const scene = SCENES[S.bg];
   if (scene && scene.front) scene.front(dt);
+  blendPat = S.color === 'blend' ? snapBackground() : null;
   drawFX(dt);
 
   g.save();
@@ -1838,6 +1847,20 @@ function loadFont(f) {
 
 /* backgrounds: painted once into a layer, with a little motion drawn on top each frame */
 const backdrop = document.createElement('canvas'), bctx = backdrop.getContext('2d');
+// "Blend" lyrics: each frame, the scene behind the words, brightened and with its color pushed up, becomes their fill
+const blendSnap = document.createElement('canvas'), blendCtx = blendSnap.getContext('2d');
+let blendPat = null;
+function snapBackground() {
+  if (blendSnap.width !== cv.width || blendSnap.height !== cv.height) { blendSnap.width = cv.width; blendSnap.height = cv.height; }
+  const c = blendCtx, w = blendSnap.width, h = blendSnap.height;
+  c.globalAlpha = 1;
+  c.globalCompositeOperation = 'copy'; c.drawImage(cv, 0, 0);
+  c.globalCompositeOperation = 'screen'; c.drawImage(cv, 0, 0);
+  c.fillStyle = 'rgb(105,105,105)'; c.fillRect(0, 0, w, h);   // a floor of light, so words still read over the darkest parts
+  c.globalCompositeOperation = 'saturation'; c.globalAlpha = 0.55; c.fillStyle = '#f00'; c.fillRect(0, 0, w, h);
+  c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1;
+  return g.createPattern(blendSnap, 'no-repeat');
+}
 let backdropKey = '', photo = null, photoVer = 0, synthZ = 0, warpZ = 0, cityLights = [];
 function onCanvas(c, w, h, fn) { const sg = g, sw = W, sh = H; g = c; W = w; H = h; try { fn(); } finally { g = sg; W = sw; H = sh; } }
 function paintBackdrop(sc) {
@@ -2123,7 +2146,7 @@ const STUDIO_TABS = [
   ['font', 'Font', [
     { kind: 'chips', key: 'font', label: 'Typeface', opts: Object.keys(FONTS).map(id => [id, FONTS[id].name]), fonts: true },
     { kind: 'chips', key: 'textCase', label: 'Case', opts: [['asis', 'As sung'], ['upper', 'Upper'], ['lower', 'Lower']] },
-    { kind: 'chips', key: 'color', label: 'Color', opts: [['loud', 'Loudness'], ['white', 'White'], ['pink', 'Pink'], ['gold', 'Gold'], ['ice', 'Ice'], ['lime', 'Lime'], ['rainbow', 'Rainbow'], ['custom', 'Custom']], swatch: true },
+    { kind: 'chips', key: 'color', label: 'Color', opts: [['loud', 'Loudness'], ['blend', 'Blend'], ['white', 'White'], ['pink', 'Pink'], ['gold', 'Gold'], ['ice', 'Ice'], ['lime', 'Lime'], ['rainbow', 'Rainbow'], ['custom', 'Custom']], swatch: true },
     { kind: 'color', key: 'custom', label: 'Custom color', only: () => S.color === 'custom' },
     { kind: 'range', key: 'size', label: 'Size', min: 0.6, max: 1.6, step: 0.05, fmt: pct },
     { kind: 'range', key: 'glowAmt', label: 'Glow', min: 0, max: 2, step: 0.1, fmt: pct },
@@ -2207,7 +2230,7 @@ function buildGroup(gp) {
     for (const [val, label] of gp.opts) {
       const b = el('button', 'pad' + (gp.fonts ? ' font-chip' : '')); b.type = 'button';
       if (gp.swatch) {
-        const sw = el('i', 'sw'), c = val === 'loud' ? 'conic-gradient(#9b82ff, #ff3d9a, #ff8a3d, #9b82ff)' : val === 'rainbow' ? 'conic-gradient(red, yellow, lime, cyan, blue, magenta, red)' : val === 'white' ? '#fff' : val === 'custom' ? 'conic-gradient(#fff, #888, #fff)' : COLORS[val];
+        const sw = el('i', 'sw'), c = val === 'loud' ? 'conic-gradient(#9b82ff, #ff3d9a, #ff8a3d, #9b82ff)' : val === 'blend' ? 'linear-gradient(160deg, #7a5ca8, #ffb48a 55%, #8fd6ff)' : val === 'rainbow' ? 'conic-gradient(red, yellow, lime, cyan, blue, magenta, red)' : val === 'white' ? '#fff' : val === 'custom' ? 'conic-gradient(#fff, #888, #fff)' : COLORS[val];
         sw.style.background = c; sw.style.color = COLORS[val] || '#fff'; b.append(sw);
       }
       b.append(document.createTextNode(label));
