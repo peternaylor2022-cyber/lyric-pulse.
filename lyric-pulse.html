@@ -346,6 +346,8 @@ body.playing .arm { transform: rotate(26deg); }
 .np-tx span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 11px/1.3 var(--mono); color: var(--muted); }
 .np-keys { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; max-width: 236px; align-self: start; }
 .np-keys .pad { min-height: 42px; padding: 0; }
+.np-msg { grid-column: 1 / -1; margin: 0; font: 400 11px/1.55 var(--mono); color: var(--danger); }
+.np-msg a { color: #dcd0ff; }
 .np-sync { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; }
 .np-sync .pad { min-height: 36px; padding: 0 12px; }
 .np-sync output { flex: 1 1 auto; min-width: 0; text-align: center; font: 500 12px/1.3 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -469,6 +471,7 @@ textarea:focus-visible { outline: 2px solid var(--violet); outline-offset: 7px; 
             <button class="pad hot" id="npPlay" type="button" aria-label="Play"></button>
             <button class="pad" id="npNext" type="button" aria-label="Next song"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M10 2h2v10h-2zM2 2v10l7-5z" fill="currentColor"/></svg></button>
           </div>
+          <p class="np-msg" id="npMsg" role="status" hidden></p>
           <div class="np-sync">
             <button class="pad sm" id="syncEarly" type="button" aria-label="Show lyrics earlier">Earlier</button>
             <output id="syncOut" aria-live="polite"></output>
@@ -567,7 +570,7 @@ const crowdBtn = $('crowdBtn'), cleanBtn = $('cleanBtn'), exitBtn = $('exitClean
 const fileIn = $('songFile'), applyBtn = $('applyBtn'), popEl = $('pop'), popOut = $('popOut');
 const spot = $('spot'), spSetup = $('spSetup'), spLive = $('spLive'), spUri = $('spUri'), spCopy = $('spCopy'), spClient = $('spClient'), spConnectBtn = $('spConnect');
 const spArt = $('spArt'), spTitle = $('spTitle'), spArtist = $('spArtist'), spFollow = $('spFollow'), spOut = $('spOut'), spStatus = $('spStatus');
-const np = $('np'), npPrev = $('npPrev'), npPlay = $('npPlay'), npNext = $('npNext'), syncEarly = $('syncEarly'), syncLate = $('syncLate'), syncOut = $('syncOut');
+const np = $('np'), npPrev = $('npPrev'), npPlay = $('npPlay'), npNext = $('npNext'), syncEarly = $('syncEarly'), syncLate = $('syncLate'), syncOut = $('syncOut'), npMsg = $('npMsg');
 
 const ICON_PLAY = '<svg width="13" height="13" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 1.5v11l9-5.5z" fill="currentColor"/></svg>';
 const ICON_PAUSE = '<svg width="13" height="13" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 1.5h3v11H3zM8 1.5h3v11H8z" fill="currentColor"/></svg>';
@@ -1238,6 +1241,7 @@ const store = {
 };
 let sp = null, spNow = null, following = false, spTimer = 0, spBusy = false, spRefreshing = null, lyricReq = 0;
 let spNote = ['', false], spAlert = false, spAlertUntil = 0, spExpect = null;
+let spDevice = store.get('lp.sp.device');
 try { sp = JSON.parse(store.get('lp.sp.auth')); } catch (e) {}
 
 const b64url = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -1279,9 +1283,10 @@ async function spToken(params) {
   store.set('lp.sp.auth', JSON.stringify(sp));
 }
 const spRefresh = () => spRefreshing || (spRefreshing = spToken({ grant_type: 'refresh_token', refresh_token: sp.refresh }).finally(() => { spRefreshing = null; }));
-async function spFetch(path, method = 'GET') {
+async function spFetch(path, method = 'GET', body) {
   if (sp.exp - Date.now() < 60000) await spRefresh();
-  const go = () => fetch(SP_API + path, { method, headers: { Authorization: 'Bearer ' + sp.token } });
+  const headers = body ? { Authorization: 'Bearer ' + sp.token, 'Content-Type': 'application/json' } : { Authorization: 'Bearer ' + sp.token };
+  const go = () => fetch(SP_API + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
   let r = await go();
   if (r.status === 401) { await spRefresh(); r = await go(); }
   return r;
@@ -1311,7 +1316,8 @@ async function poll() {
   if (!document.hidden) {
     spBusy = true;
     try {
-      const t0 = performance.now(), r = await spFetch('/me/player/currently-playing');
+      // the playback state is the currently-playing report plus the device it's playing on
+      const t0 = performance.now(), r = await spFetch('/me/player');
       const at = (t0 + performance.now()) / 2;
       if (!following || !sp) return;
       if (r.status === 204) spIdle('Nothing is playing on Spotify right now.');
@@ -1332,6 +1338,8 @@ function spIdle(msg) {
   spSay(msg);
 }
 function spUpdate(j, at) {
+  if (j.device && j.device.id && j.device.id !== spDevice) { spDevice = j.device.id; store.set('lp.sp.device', spDevice); }
+  if (j.is_playing) npNote('');
   const it = j.item;
   if (!it || j.currently_playing_type !== 'track') {
     spIdle(j.currently_playing_type === 'ad' ? 'An ad is playing. The lyrics come back with the music.' : 'Spotify is playing something without lyrics, like a podcast.');
@@ -1406,32 +1414,72 @@ function lyricEnergy(dur, lrc) {
 }
 
 // the now-playing keys: Spotify plays, pauses and skips on whichever device is playing
+// a message on the card itself, next to the keys that caused it
+let npMsgTimer = 0;
+function npNote(msg, openSpotify) {
+  clearTimeout(npMsgTimer);
+  npMsg.textContent = msg;
+  if (msg && openSpotify) { const a = document.createElement('a'); a.href = 'spotify:'; a.textContent = 'open Spotify'; npMsg.append(' ', a, '.'); }
+  npMsg.hidden = !msg;
+  if (msg) npMsgTimer = setTimeout(() => { npMsg.hidden = true; }, 15000);
+}
+
+const spAsleep = { ok: false, status: 404 };
+const sleepFor = ms => new Promise(res => setTimeout(res, ms));
+const onDevice = () => spDevice ? '?device_id=' + encodeURIComponent(spDevice) : '';
+// An iPhone puts Spotify to sleep a few seconds after it pauses in the background, and a sleeping app ignores a plain play.
+// Aim the play at the phone, hand playback back to it if that fails, and nudge once if it takes the command but stays paused.
+async function spResume() {
+  let r = await spFetch('/me/player/play' + onDevice(), 'PUT');
+  if (!r.ok && r.status !== 429) {
+    const d = await spFetch('/me/player/devices');
+    const list = d.ok ? (await d.json()).devices || [] : [];
+    const pick = list.find(x => x.id === spDevice) || list.find(x => x.type === 'Smartphone') || list[0];
+    if (!pick) return spAsleep;
+    spDevice = pick.id; store.set('lp.sp.device', spDevice);
+    r = await spFetch('/me/player', 'PUT', { device_ids: [pick.id], play: true });
+  }
+  if (!r.ok) return r;
+  for (let nudge = 0; nudge < 2; nudge++) {
+    await sleepFor(900);
+    const s = await spFetch('/me/player');
+    if (s.status === 204) return spAsleep;
+    if (s.ok && (await s.json()).is_playing) return r;
+    if (nudge === 0) await spFetch('/me/player/play' + onDevice(), 'PUT');
+  }
+  return spAsleep;
+}
+
+// the now-playing keys: Spotify plays, pauses and skips on whichever device is playing
 async function spControl(action) {
   if (!sp) return;
   if (!/user-modify-playback-state/.test(sp.scope || '')) {
-    spSay('Spotify needs one more OK before Tunely can pause and skip. Opening Spotify…');
-    setTimeout(() => { spConnect().catch(() => spTell('Could not open Spotify. Try again.', true)); }, 900);
+    npNote('Spotify needs one more OK before Tunely can pause and skip. Opening Spotify…');
+    setTimeout(() => { spConnect().catch(() => npNote('Could not open Spotify. Try again.')); }, 900);
     return;
   }
-  const on = playing, toggle = action === 'toggle';
-  const method = toggle ? 'PUT' : 'POST';
-  const path = toggle ? (on ? '/me/player/pause' : '/me/player/play') : action === 'next' ? '/me/player/next' : '/me/player/previous';
+  const on = playing, toggle = action === 'toggle', resume = toggle && !on;
   if (toggle && track && track.spotify && spNow) {
-    // flip the key right away; Spotify's next report confirms it
+    // flip the key right away; Spotify's reports confirm it
     spNow = { progress: spPredict(performance.now()), at: performance.now(), on: !on };
-    spExpect = { on: !on, until: performance.now() + 2500 };
+    spExpect = { on: !on, until: performance.now() + (resume ? 5000 : 2500) };
     playing = !on; lockScreen(playing); updateUI();
   }
+  npNote('');
   try {
-    const r = await spFetch(path, method);
-    if (!r.ok) spExpect = null;
-    if (r.status === 404) spSay('Spotify has no active device. Start Spotify on your phone or another device, then try again.', true, 6000);
-    else if (r.status === 403) spSay("Spotify won't do that right now.", true, 6000);
-    else if (!r.ok) spSay('Spotify answered with error ' + r.status + '.', true, 6000);
+    const r = resume ? await spResume()
+      : await spFetch((toggle ? '/me/player/pause' : action === 'next' ? '/me/player/next' : '/me/player/previous') + onDevice(), toggle ? 'PUT' : 'POST');
+    if (!r.ok) {
+      spExpect = null;
+      if (r.status === 404) npNote("Spotify fell asleep on your phone, so it can't hear Tunely. Press play in Control Center, or", true);
+      else if (r.status === 403) npNote("Spotify won't do that right now.");
+      else if (r.status === 429) npNote('Spotify asked Tunely to slow down. Try again in a moment.');
+      else npNote('Spotify answered with error ' + r.status + '. Try again.');
+    }
   } catch (e) {
     spExpect = null;
     if (e.message === 'auth') { spSignOut('Spotify ended the session. Connect again.'); return; }
-    spSay("Can't reach Spotify. Try again.", true, 6000);
+    npNote("Can't reach Spotify. Try again.");
   }
   // check back soon so the new song or state shows up
   if (following) { clearTimeout(spTimer); spTimer = setTimeout(poll, 600); }
