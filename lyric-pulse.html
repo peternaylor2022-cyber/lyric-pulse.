@@ -551,6 +551,41 @@ body.recording .stage canvas { object-fit: contain; }
 .rd-note { margin: 0; font: 400 12px/1.5 var(--mono); color: var(--muted); text-align: center; }
 .rd-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .rd-card .pad { min-height: 48px; }
+/* picking where the recording starts: a sheet over the studio's controls, the preview stays in view above it */
+.pick {
+  position: fixed; z-index: 65; left: 0; right: 0; bottom: 0; max-height: 52vh;
+  display: flex; flex-direction: column; gap: 14px;
+  padding-block: 18px calc(16px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  border-radius: 18px 18px 0 0;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .06), transparent 60px),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .022) 0 1px, transparent 1px 3px),
+    #0b0911;
+  box-shadow: 0 -20px 50px rgba(0, 0, 0, .6), 0 -18px 50px -20px rgba(255, 61, 154, .35), inset 0 1px 0 rgba(255, 255, 255, .14), inset 0 0 0 1px #2c2340;
+}
+.pick h2 { margin: 0; display: flex; align-items: center; justify-content: center; gap: 10px; font: 600 12px/1.3 var(--mono); letter-spacing: .22em; text-transform: uppercase; color: var(--fg); }
+.pick-time { display: flex; justify-content: center; align-items: baseline; gap: 8px; font: 600 30px/1 var(--mono); color: var(--fg); font-variant-numeric: tabular-nums; }
+.pick-time span { font-size: 13px; color: var(--muted); }
+.pick-quick { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.pick-quick .pad { min-height: 40px; padding: 0 6px; }
+.pick-lines {
+  flex: 1 1 auto; min-height: 60px; overflow-y: auto; overscroll-behavior: contain;
+  display: grid; align-content: start; gap: 2px; padding: 6px; border-radius: 10px;
+  background: #05030a; box-shadow: inset 0 2px 8px rgba(0, 0, 0, .9), 0 0 0 1px #1d1729;
+}
+.pick-line {
+  display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 10px; align-items: baseline;
+  padding: 9px 10px; border: 0; border-radius: 7px; background: transparent; cursor: pointer;
+  color: var(--muted); font: 400 14px/1.35 var(--display); text-align: left;
+}
+.pick-line span:first-child { font: 500 11px/1 var(--mono); color: #7a7199; font-variant-numeric: tabular-nums; }
+.pick-line[aria-selected="true"] { background: rgba(255, 61, 154, .16); color: #fff; }
+.pick-line:focus-visible { outline: 2px solid var(--violet); outline-offset: -2px; }
+.pick .rd-row .pad { min-height: 48px; }
+.pick .hot { gap: 10px; }
+.pick .hot .rec { background: #fff; box-shadow: 0 0 8px #fff; }
+@media (min-width: 860px) { .pick { left: auto; top: 0; width: 440px; max-height: none; border-radius: 18px 0 0 0; } }
 
 @media (prefers-reduced-motion: reduce) {
   .strip, .rec { animation: none; }
@@ -676,6 +711,18 @@ body.recording .stage canvas { object-fit: contain; }
   <i class="rec" aria-hidden="true"></i><span class="rec-time" id="recTime" role="timer" aria-label="Recording time">0:00</span>
   <button class="pad hot" id="recEnd" type="button">End</button>
 </div>
+<div class="pick" id="pick" role="dialog" aria-modal="true" aria-labelledby="pickTitle" hidden>
+  <h2 id="pickTitle"><i class="rec" aria-hidden="true"></i>Start recording from</h2>
+  <div class="pick-time"><output id="pickNow" for="pickSeek">0:00</output><span id="pickTot">/ 0:00</span></div>
+  <input class="slider" id="pickSeek" type="range" min="0" max="1" step="0.1" value="0" aria-label="Where the recording starts">
+  <div class="pick-quick">
+    <button class="pad sm" id="pickStart" type="button">The start</button>
+    <button class="pad sm" id="pickHere" type="button">Where it is</button>
+    <button class="pad sm" id="pickHook" type="button">The hook</button>
+  </div>
+  <div class="pick-lines" id="pickLines" role="listbox" aria-label="Start at a lyric line"></div>
+  <div class="rd-row"><button class="pad" id="pickCancel" type="button">Cancel</button><button class="pad hot" id="pickGo" type="button"><i class="rec" aria-hidden="true"></i>Record</button></div>
+</div>
 <div class="rec-done" id="recDone" role="dialog" aria-modal="true" aria-labelledby="recDoneTitle" hidden>
   <div class="rd-card">
     <h2 id="recDoneTitle">Your video is ready</h2>
@@ -718,6 +765,8 @@ const studioEl = $('studio'), studioBtn = $('studioBtn'), studioAlt = $('studioA
 const stTabs = $('stTabs'), stPanes = $('stPanes'), stReset = $('stReset'), stRecord = $('stRecord');
 const recBar = $('recBar'), recTime = $('recTime'), recEnd = $('recEnd'), recDone = $('recDone'), recDoneTitle = $('recDoneTitle');
 const recVideo = $('recVideo'), recNote = $('recNote'), recSave = $('recSave'), recAgain = $('recAgain'), recClose = $('recClose');
+const pick = $('pick'), pickNow = $('pickNow'), pickTot = $('pickTot'), pickSeek = $('pickSeek'), pickStart = $('pickStart'), pickHere = $('pickHere');
+const pickHook = $('pickHook'), pickLines = $('pickLines'), pickCancel = $('pickCancel'), pickGo = $('pickGo');
 const fileIn = $('songFile'), applyBtn = $('applyBtn'), popEl = $('pop'), popOut = $('popOut');
 const spot = $('spot'), spSetup = $('spSetup'), spLive = $('spLive'), spUri = $('spUri'), spCopy = $('spCopy'), spClient = $('spClient'), spConnectBtn = $('spConnect');
 const spArt = $('spArt'), spTitle = $('spTitle'), spArtist = $('spArtist'), spFollow = $('spFollow'), spOut = $('spOut'), spStatus = $('spStatus');
@@ -879,7 +928,8 @@ function getCtx() {
   }
   return ctx;
 }
-const songTime = () => track.spotify ? spClock() : playing ? Math.min(track.duration, startOff + (ctx.currentTime - startCtx)) : pausedAt;
+// while you're picking where a recording starts, the stage shows that moment instead of the playhead
+const songTime = () => pickT != null ? pickT : track.spotify ? spClock() : playing ? Math.min(track.duration, startOff + (ctx.currentTime - startCtx)) : pausedAt;
 function stopSrc() {
   if (!src) return;
   const s = src; src = null; s.onended = null;
@@ -1577,6 +1627,7 @@ stage.addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter')
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   if (recorder) stopRecording();
+  else if (!pick.hidden) closePick();
   else if (!recDone.hidden) recClose.click();
   else if (studioOpen) closeStudio(); else if (clean()) setClean(false); else if (isOpen()) setDeck(false);
 });
@@ -2391,7 +2442,7 @@ stBack.addEventListener('click', closeStudio);
 stPlay.addEventListener('click', studioPlay);
 stPreview.addEventListener('click', studioPlay);
 stPreview.addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); studioPlay(); } });
-stRecord.addEventListener('click', () => startRecording());
+stRecord.addEventListener('click', () => openPick());
 stReset.addEventListener('click', () => { S = Object.assign({}, STUDIO_DEFAULTS); saveStudio(); loadFont(fontOf()); epoch++; refreshStudio(); });
 
 /* ---------- recording: the video canvas straight into a file, so nothing laid on top of it is ever in the video ---------- */
@@ -2399,7 +2450,7 @@ const REC_W = 540, REC_H = 960;   // drawn at 2x: a 1080 x 1920 vertical video
 let recorder = null, recChunks = [], recDest = null, recStart = 0, recTimer = 0, recBlob = null, recUrl = '', recSilent = true;
 const recType = () => ['video/mp4;codecs=avc1.640028', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm']
   .find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
-function startRecording() {
+function startRecording(at) {
   closeStudio();
   setClean(true);
   if (!window.MediaRecorder || !cv.captureStream) {
@@ -2430,8 +2481,71 @@ function startRecording() {
   recorder.start(1000);
   recStart = performance.now(); recBar.hidden = false; tickRec(); recTimer = setInterval(tickRec, 500);
   lockScreen(true);
-  if (!playing) studioPlay();   // the music starts with the recording
+  // the music starts with the recording, from the picked spot if there is one
+  if (at != null) cueSong(at); else if (!playing) studioPlay();
 }
+// put the song at `at` seconds and get it playing
+async function cueSong(at) {
+  if (!track) return;
+  if (!track.spotify) { seekTo(at); if (!playing) play(); return; }
+  if (!sp) return;
+  const seek = () => spFetch('/me/player/seek?position_ms=' + Math.round(at * 1000) + (spDevice ? '&device_id=' + encodeURIComponent(spDevice) : ''), 'PUT');
+  spNow = { progress: at, at: performance.now(), on: playing }; resetFlags();
+  try {
+    let r = await seek();
+    if (!playing) await spControl('toggle');
+    // a phone that was asleep only takes the seek once it's awake again
+    if (!r.ok) { r = await seek(); if (r.ok) spNow = { progress: at, at: performance.now(), on: playing }; }
+  } catch (e) {}
+}
+
+/* picking where in the song the recording starts */
+let pickT = null, pickFrom = 0;
+const lineKey = s => s.toLowerCase().replace(/[^\p{L}\p{N} ]/gu, '').trim();
+// the hook: the first time the most repeated line is sung
+function hookTime() {
+  const count = {};
+  for (const l of lines) { const k = lineKey(l.text); if (k) count[k] = (count[k] || 0) + 1; }
+  let best = null;
+  for (const l of lines) { const n = count[lineKey(l.text)] || 0; if (n >= 2 && (!best || n > best.n)) best = { n, t: l.t }; }
+  return best ? best.t : null;
+}
+function setPick(t) {
+  pickT = clamp(t, 0, track.duration);
+  pickSeek.value = pickT; pickSeek.style.setProperty('--p', (pickT / track.duration * 100) + '%');
+  pickNow.textContent = fmt(pickT);
+  const idx = lineIndexAt(pickT + 0.9);   // the line about to be sung, allowing for the lead-in
+  for (const b of pickLines.children) b.setAttribute('aria-selected', +b.dataset.i === idx ? 'true' : 'false');
+}
+function openPick() {
+  if (!track) { startRecording(null); return; }
+  pickFrom = songTime();
+  pickSeek.max = track.duration; pickTot.textContent = '/ ' + fmt(track.duration);
+  pickLines.textContent = '';
+  // start a moment before a line, so its first word isn't cut off
+  lines.forEach((l, i) => {
+    if (!l.text) return;
+    const b = el('button', 'pick-line'); b.type = 'button'; b.dataset.i = i; b.setAttribute('role', 'option');
+    b.append(el('span', '', fmt(l.t)), el('span', '', l.text));
+    b.onclick = () => setPick(l.t - 0.8);
+    pickLines.append(b);
+  });
+  pickLines.hidden = !pickLines.children.length;
+  const hook = hookTime();
+  pickHook.hidden = hook == null;
+  pickHook.onclick = () => setPick(hook - 0.8);
+  setPick(pickFrom);
+  pick.hidden = false;
+  const sel = pickLines.querySelector('[aria-selected="true"]');
+  if (sel) sel.scrollIntoView({ block: 'center' });
+  pickGo.focus();
+}
+function closePick() { pick.hidden = true; pickT = null; resetFlags(); }
+pickSeek.addEventListener('input', () => setPick(+pickSeek.value));
+pickStart.addEventListener('click', () => setPick(0));
+pickHere.addEventListener('click', () => setPick(pickFrom));
+pickCancel.addEventListener('click', closePick);
+pickGo.addEventListener('click', () => { const t = pickT; closePick(); startRecording(t); });
 function tickRec() {
   const s = Math.floor((performance.now() - recStart) / 1000);
   recTime.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
@@ -2483,7 +2597,7 @@ recSave.addEventListener('click', async () => {
   const a = el('a'); a.href = recUrl; a.download = file.name; document.body.append(a); a.click(); a.remove();
   recNote.textContent = 'Downloaded. On an iPhone it lands in the Files app, under Downloads.';
 });
-recAgain.addEventListener('click', () => { closeDone(); startRecording(); });
+recAgain.addEventListener('click', () => { closeDone(); setClean(false); openStudio(); openPick(); });
 recClose.addEventListener('click', () => { closeDone(); setClean(false); openStudio(); });
 
 /* ---------- start ---------- */
