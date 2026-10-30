@@ -781,6 +781,7 @@ let ctx = null, gain = null, soundOn = true;
 let track = null, src = null, playing = false, startCtx = 0, startOff = 0, pausedAt = 0;
 let lines = [], strength = 1, live = 0, prevTarget = 0, lastRing = -9, jumpT = -9, shake = 0;
 let shownIdx = -1, lastT = 0, lastSec = -1, scrubbing = false, wasPlaying = false;
+let recFrom = null, drawOn = false;   // recFrom: where in the song a take started { t, at }; drawOn: animate as if playing
 const rings = [], parts = [], ghosts = [];   // ghosts: lines on their way out
 const rand = rng(7);
 const orbs = Array.from({ length: 14 }, () => ({ x: rand(), sp: 0.015 + rand() * 0.035, ph: rand(), sz: rand(), hs: rand() * 70 - 35 }));
@@ -916,6 +917,8 @@ function lineIndexAt(t) {
   while (lo <= hi) { const m = (lo + hi) >> 1; if (lines[m].t <= t) { ans = m; lo = m + 1; } else hi = m - 1; }
   return ans;
 }
+// a take leaves out the tail end of the line before the picked spot, so it doesn't open on a line sitting still
+const onTake = l => !recFrom || l.t >= recFrom.t - 0.01 || l.t + l.hold - recFrom.t >= 1;
 
 /* ---------- audio ---------- */
 function getCtx() {
@@ -929,7 +932,7 @@ function getCtx() {
   return ctx;
 }
 // while you're picking where a recording starts, the stage shows that moment instead of the playhead
-const songTime = () => pickT != null ? pickT : track.spotify ? spClock() : playing ? Math.min(track.duration, startOff + (ctx.currentTime - startCtx)) : pausedAt;
+const songTime = () => pickT != null ? pickT : recFrom && track.spotify ? Math.min(track.duration, recFrom.t + (performance.now() - recFrom.at) / 1000) : track.spotify ? spClock() : playing ? Math.min(track.duration, startOff + (ctx.currentTime - startCtx)) : pausedAt;
 function stopSrc() {
   if (!src) return;
   const s = src; src = null; s.onended = null;
@@ -981,7 +984,7 @@ function seekTo(t) {
 }
 function setTrack(tr, lrc) {
   if (playing) { if (track.spotify) { playing = false; lockScreen(false); } else pause(); }
-  pausedAt = 0;
+  pausedAt = 0; recFrom = null;   // a new song mid-take goes back to following Spotify
   if (!tr.norm) { const e = buildNorm(tr.chs, tr.sr); tr.norm = e.norm; tr.rate = e.rate; }
   track = tr;
   seek.max = tr.duration; seek.value = 0;
@@ -1165,7 +1168,7 @@ function drawBG(dt) {
   g.globalCompositeOperation = 'source-over';
 }
 function drawCrowd(dt) {
-  const en = playing ? live : 0, hue = hueOf(live), k = 1 - Math.exp(-dt * 5);
+  const en = drawOn ? live : 0, hue = hueOf(live), k = 1 - Math.exp(-dt * 5);
   g.lineCap = 'round';
   for (const row of crowd) {
     const d = row.d, base = H * (0.63 + 0.33 * Math.pow(d, 1.3)), s0 = W * (0.045 + 0.16 * Math.pow(d, 1.6));
@@ -1368,15 +1371,15 @@ function drawWord(w, a, out) {
 // a line of words: shown as it's sung, or on its way out (out > 0, with tt the song time it left at)
 function drawLine(l, tt, out) {
   layout(l);
-  const shown = w => out > 0 ? w.t0 <= tt : !playing || tt >= w.t0;
+  const shown = w => out > 0 ? w.t0 <= tt : !drawOn || tt >= w.t0, from = recFrom ? recFrom.t : -Infinity;
   let only = -1;
   if (S.layout === 'word') for (const w of l.words) if (shown(w)) only = w.i;
   g.save();
   if (S.tilt) { g.translate(l.cx, l.cy); g.rotate(S.tilt * Math.PI / 180); g.translate(-l.cx, -l.cy); }
   for (const w of l.words) {
     if (S.layout === 'word' && w.i !== only) continue;
-    const a = out > 0 ? (shown(w) ? 99 : -1) : playing ? tt - w.t0 : 99;
-    if (!out && playing && a >= 0 && !w._p && a < 0.25) { w._p = true; burst(w); }
+    const a = out > 0 ? (shown(w) ? 99 : -1) : drawOn ? tt - Math.max(w.t0, from) : 99;
+    if (!out && drawOn && a >= 0 && !w._p && a < 0.25) { w._p = true; burst(w); }
     drawWord(w, a, out);
   }
   g.restore();
@@ -1444,13 +1447,15 @@ const isOpen = () => document.body.classList.contains('open');
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, (now - last) / 1000); last = now; time += dt;
+  // a Spotify take runs on its own clock from the moment Record is pressed, so the video never waits on Spotify
+  drawOn = playing || !!(recFrom && track && track.spotify);
   const t = track ? songTime() : 0;
   if (t < lastT - 0.05) resetFlags();
   lastT = t;
-  const inst = track ? normAt(t) : 0, target = inst * (playing ? 1 : 0.4);
+  const inst = track ? normAt(t) : 0, target = inst * (drawOn ? 1 : 0.4);
   live += (target - live) * (1 - Math.exp(-dt * (target > live ? 30 : 6)));
   flow += dt * (0.5 + live * 1.6);
-  if (playing && inst - prevTarget > 0.12 && inst > 0.55 && time - lastRing > 0.22) {
+  if (drawOn && inst - prevTarget > 0.12 && inst > 0.55 && time - lastRing > 0.22) {
     if (S.rings) rings.push({ t: time, hue: hueOf(inst), s: inst });
     if (S.shake) shake = 9 * inst;
     lastRing = jumpT = time;
@@ -1470,12 +1475,12 @@ function frame(now) {
   if (lines.length) {
     const idx = lineIndexAt(t), outFor = 0.5 / S.disappearSpeed;
     if (idx !== shownIdx) {
-      if (playing && shownIdx >= 0 && idx > shownIdx && idx - shownIdx < 3) leave(lines[shownIdx], t);
+      if (drawOn && shownIdx >= 0 && idx > shownIdx && idx - shownIdx < 3 && onTake(lines[shownIdx])) leave(lines[shownIdx], t);
       shownIdx = idx;
     }
-    const l = idx >= 0 ? lines[idx] : null;
+    const l = idx >= 0 && onTake(lines[idx]) ? lines[idx] : null;
     // a line also leaves once its time is up, before the next one starts
-    if (l && playing && t > l.t + l.hold) leave(l, t);
+    if (l && drawOn && t > l.t + l.hold) leave(l, t);
     for (let i = ghosts.length - 1; i >= 0; i--) {
       const gh = ghosts[i], k = (time - gh.t0) / outFor;
       if (k >= 1) ghosts.splice(i, 1); else drawLine(gh.line, gh.tLeft, Math.max(k, 0.001));
@@ -1499,7 +1504,7 @@ function frame(now) {
   }
   g.restore();
 
-  if (!playing && !recorder) {
+  if (!drawOn && !recorder) {
     g.fillStyle = 'rgba(242,238,252,0.5)'; g.font = '500 11px ' + MONO;
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText(track && track.spotify ? 'PAUSED IN SPOTIFY' : 'TAP TO PLAY', W / 2, H - 28);
@@ -1536,8 +1541,10 @@ function resize() {
   // while recording, the canvas is the video: a fixed 9:16 frame at 2x, whatever the screen
   const w = recorder ? REC_W : stage.clientWidth, h = recorder ? REC_H : stage.clientHeight;
   if (w < 2 || h < 2) return;
-  dpr = recorder ? 2 : Math.min(window.devicePixelRatio || 1, 2);
-  W = w; H = h;
+  const d = recorder ? 2 : Math.min(window.devicePixelRatio || 1, 2);
+  // setting a canvas's size wipes it, which a recording would catch as a black frame
+  if (w === W && h === H && d === dpr && cv.width === Math.round(w * d) && cv.height === Math.round(h * d)) return;
+  dpr = d; W = w; H = h;
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
   stPreview.style.aspectRatio = W + ' / ' + H;   // the studio monitor shows the video at its real shape
   epoch++;
@@ -2461,28 +2468,34 @@ function startRecording(at) {
   recorder = true;   // resize() reads this: from here on the canvas is the video's size
   document.body.classList.add('recording');
   resize();
-  const stream = cv.captureStream(30);
-  // a song played in Tunely goes into the video; Spotify keeps its sound to itself
-  recSilent = true;
-  if (track && !track.spotify) {
-    try { recDest = getCtx().createMediaStreamDestination(); if (src) src.connect(recDest); stream.addTrack(recDest.stream.getAudioTracks()[0]); recSilent = false; }
-    catch (e) { recDest = null; }
-  }
-  const type = recType();
-  recChunks = [];
-  try { recorder = new MediaRecorder(stream, type ? { mimeType: type, videoBitsPerSecond: 8e6 } : { videoBitsPerSecond: 8e6 }); }
-  catch (e) {
-    recorder = null; endRecordingUI();
-    showDone(null, "This browser couldn't start recording. Clean view is on, so you can use your phone's screen recording instead.");
-    return;
-  }
-  recorder.ondataavailable = e => { if (e.data && e.data.size) recChunks.push(e.data); };
-  recorder.onstop = finishRecording;
-  recorder.start(1000);
-  recStart = performance.now(); recBar.hidden = false; tickRec(); recTimer = setInterval(tickRec, 500);
+  if (at != null) recFrom = { t: at, at: performance.now() };
   lockScreen(true);
-  // the music starts with the recording, from the picked spot if there is one
-  if (at != null) cueSong(at); else if (!playing) studioPlay();
+  // capture starts once the canvas has drawn at the video's size: a stream taken any sooner opens on a black frame
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (recorder !== true) return;   // ended before it began
+    const stream = cv.captureStream(30);
+    // a song played in Tunely goes into the video; Spotify keeps its sound to itself
+    recSilent = true;
+    if (track && !track.spotify) {
+      try { recDest = getCtx().createMediaStreamDestination(); if (src) src.connect(recDest); stream.addTrack(recDest.stream.getAudioTracks()[0]); recSilent = false; }
+      catch (e) { recDest = null; }
+    }
+    const type = recType();
+    recChunks = [];
+    try { recorder = new MediaRecorder(stream, type ? { mimeType: type, videoBitsPerSecond: 8e6 } : { videoBitsPerSecond: 8e6 }); }
+    catch (e) {
+      recorder = null; endRecordingUI();
+      showDone(null, "This browser couldn't start recording. Clean view is on, so you can use your phone's screen recording instead.");
+      return;
+    }
+    recorder.ondataavailable = e => { if (e.data && e.data.size) recChunks.push(e.data); };
+    recorder.onstop = finishRecording;
+    recorder.start(1000);
+    if (recFrom) recFrom.at = performance.now();
+    recStart = performance.now(); recBar.hidden = false; tickRec(); recTimer = setInterval(tickRec, 500);
+    // the music starts with the recording, from the picked spot if there is one
+    if (at != null) cueSong(at); else if (!playing) studioPlay();
+  }));
 }
 // put the song at `at` seconds and get it playing
 async function cueSong(at) {
@@ -2501,6 +2514,7 @@ async function cueSong(at) {
 
 /* picking where in the song the recording starts */
 let pickT = null, pickFrom = 0;
+const LEAD = 0.35;   // seconds a take starts before a picked line
 const lineKey = s => s.toLowerCase().replace(/[^\p{L}\p{N} ]/gu, '').trim();
 // the hook: the first time the most repeated line is sung
 function hookTime() {
@@ -2514,7 +2528,7 @@ function setPick(t) {
   pickT = clamp(t, 0, track.duration);
   pickSeek.value = pickT; pickSeek.style.setProperty('--p', (pickT / track.duration * 100) + '%');
   pickNow.textContent = fmt(pickT);
-  const idx = lineIndexAt(pickT + 0.9);   // the line about to be sung, allowing for the lead-in
+  const idx = lineIndexAt(pickT + LEAD + 0.1);   // the line about to be sung, allowing for the lead-in
   for (const b of pickLines.children) b.setAttribute('aria-selected', +b.dataset.i === idx ? 'true' : 'false');
 }
 function openPick() {
@@ -2522,18 +2536,18 @@ function openPick() {
   pickFrom = songTime();
   pickSeek.max = track.duration; pickTot.textContent = '/ ' + fmt(track.duration);
   pickLines.textContent = '';
-  // start a moment before a line, so its first word isn't cut off
+  // start a moment before a line, so its first word isn't clipped
   lines.forEach((l, i) => {
     if (!l.text) return;
     const b = el('button', 'pick-line'); b.type = 'button'; b.dataset.i = i; b.setAttribute('role', 'option');
     b.append(el('span', '', fmt(l.t)), el('span', '', l.text));
-    b.onclick = () => setPick(l.t - 0.8);
+    b.onclick = () => setPick(l.t - LEAD);
     pickLines.append(b);
   });
   pickLines.hidden = !pickLines.children.length;
   const hook = hookTime();
   pickHook.hidden = hook == null;
-  pickHook.onclick = () => setPick(hook - 0.8);
+  pickHook.onclick = () => setPick(hook - LEAD);
   setPick(pickFrom);
   pick.hidden = false;
   const sel = pickLines.querySelector('[aria-selected="true"]');
@@ -2550,7 +2564,10 @@ function tickRec() {
   const s = Math.floor((performance.now() - recStart) / 1000);
   recTime.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 }
-function stopRecording() { if (recorder && recorder.state !== 'inactive') recorder.stop(); }
+function stopRecording() {
+  if (recorder === true) { recorder = null; endRecordingUI(); setClean(false); openStudio(); return; }   // ended before it began
+  if (recorder && recorder.state !== 'inactive') recorder.stop();
+}
 function finishRecording() {
   const type = (recorder && recorder.mimeType) || recType() || 'video/webm';
   recorder = null;
@@ -2559,7 +2576,7 @@ function finishRecording() {
   showDone(recBlob);
 }
 function endRecordingUI() {
-  clearInterval(recTimer); recBar.hidden = true;
+  clearInterval(recTimer); recBar.hidden = true; recFrom = null;
   if (recDest) { try { if (src) src.disconnect(recDest); } catch (e) {} recDest = null; }
   document.body.classList.remove('recording');
   resize();
