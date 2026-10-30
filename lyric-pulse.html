@@ -2477,6 +2477,8 @@ recSave.addEventListener('click', async () => {
     try { await navigator.share({ files: [file] }); recNote.textContent = 'Done. Pick Save Video in the share sheet to keep it in Photos.'; return; }
     catch (e) { if (e.name === 'AbortError') return; }
   }
+  // an embedded preview can't hand over files at all
+  if (window.top !== window.self) { recNote.textContent = "Saving doesn't work in this preview. Record from the Tunely app on your home screen."; return; }
   // no share sheet here: download the file instead
   const a = el('a'); a.href = recUrl; a.download = file.name; document.body.append(a); a.click(); a.remove();
   recNote.textContent = 'Downloaded. On an iPhone it lands in the Files app, under Downloads.';
