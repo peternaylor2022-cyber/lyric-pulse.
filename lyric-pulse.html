@@ -518,6 +518,40 @@ body.in-studio .studio { transform: none; visibility: visible; transition-delay:
   .st-panel { flex: 0 0 440px; border-radius: 18px 0 0 0; }
 }
 
+/* ---- recording: the canvas itself becomes a 1080 x 1920 video, letterboxed on screen; nothing laid over it is recorded ---- */
+body.recording .stage { background: #000; cursor: default; }
+body.recording .stage canvas { object-fit: contain; }
+.rec-bar {
+  position: fixed; z-index: 45; left: 0; right: 0; top: 0;
+  display: flex; align-items: center; gap: 10px;
+  padding-block: calc(env(safe-area-inset-top, 0px) + 10px) 10px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: linear-gradient(180deg, rgba(0, 0, 0, .65), transparent);
+  pointer-events: none;
+}
+.rec-bar .rec { width: 11px; height: 11px; }
+.rec-time { font: 600 14px/1 var(--mono); letter-spacing: .1em; color: #fff; font-variant-numeric: tabular-nums; }
+.rec-bar .pad { margin-left: auto; min-height: 44px; padding: 0 24px; pointer-events: auto; }
+.rec-done {
+  position: fixed; inset: 0; z-index: 70; display: grid; place-items: center;
+  padding-block: calc(env(safe-area-inset-top, 0px) + 16px) calc(env(safe-area-inset-bottom, 0px) + 16px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: rgba(5, 3, 10, .86);
+}
+.rd-card {
+  width: min(100%, 380px); max-height: 100%; overflow-y: auto; display: grid; gap: 14px; padding: 18px; border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .06), transparent 60px),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .022) 0 1px, transparent 1px 3px),
+    #0b0911;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .7), 0 0 50px -12px rgba(255, 61, 154, .4), inset 0 1px 0 rgba(255, 255, 255, .14), inset 0 0 0 1px #2c2340;
+}
+.rd-card h2 { margin: 0; display: flex; align-items: center; justify-content: center; gap: 10px; font: 600 12px/1.3 var(--mono); letter-spacing: .22em; text-transform: uppercase; color: var(--fg); }
+.rd-card video { display: block; justify-self: center; height: min(48vh, 480px); max-width: 100%; aspect-ratio: 9 / 16; border-radius: 10px; background: #000; box-shadow: 0 0 0 4px #17121f, 0 0 0 5px #352b4c, 0 10px 24px rgba(0, 0, 0, .7); }
+.rd-note { margin: 0; font: 400 12px/1.5 var(--mono); color: var(--muted); text-align: center; }
+.rd-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.rd-card .pad { min-height: 48px; }
+
 @media (prefers-reduced-motion: reduce) {
   .strip, .rec { animation: none; }
   body.open .stage { animation: none; }
@@ -573,7 +607,7 @@ body.in-studio .studio { transform: none; visibility: visible; transition-delay:
             <button class="pad on" id="soundBtn" type="button" aria-pressed="true"><i class="led"></i>Sound</button>
             <button class="pad" id="cleanBtn" type="button">Clean view</button>
             <button class="pad np-studio" id="studioAlt" type="button"><i class="rec" aria-hidden="true"></i>Recording Studio</button>
-            <p class="tip">To record: Sound off, Clean view, tap the screen to play. Add the song from TikTok's sound library.</p>
+            <p class="tip">To make a video, open the Recording Studio and press Record. Add the song from TikTok's sound library.</p>
           </div>
 
           <div class="pads load">
@@ -638,6 +672,20 @@ body.in-studio .studio { transform: none; visibility: visible; transition-delay:
 
 <button class="pad exit" id="exitClean" type="button" hidden>Exit clean view</button>
 
+<div class="rec-bar" id="recBar" hidden>
+  <i class="rec" aria-hidden="true"></i><span class="rec-time" id="recTime" role="timer" aria-label="Recording time">0:00</span>
+  <button class="pad hot" id="recEnd" type="button">End</button>
+</div>
+<div class="rec-done" id="recDone" role="dialog" aria-modal="true" aria-labelledby="recDoneTitle" hidden>
+  <div class="rd-card">
+    <h2 id="recDoneTitle">Your video is ready</h2>
+    <video id="recVideo" playsinline muted loop></video>
+    <p class="rd-note" id="recNote"></p>
+    <button class="pad hot" id="recSave" type="button">Save to phone</button>
+    <div class="rd-row"><button class="pad" id="recAgain" type="button">Record again</button><button class="pad" id="recClose" type="button">Back to studio</button></div>
+  </div>
+</div>
+
 <script>
 (() => {
 'use strict';
@@ -668,6 +716,8 @@ const soundBtn = $('soundBtn');
 const cleanBtn = $('cleanBtn'), exitBtn = $('exitClean'), demoBtn = $('demoBtn');
 const studioEl = $('studio'), studioBtn = $('studioBtn'), studioAlt = $('studioAlt'), stBack = $('stBack'), stPlay = $('stPlay'), stPreview = $('stPreview');
 const stTabs = $('stTabs'), stPanes = $('stPanes'), stReset = $('stReset'), stRecord = $('stRecord');
+const recBar = $('recBar'), recTime = $('recTime'), recEnd = $('recEnd'), recDone = $('recDone'), recDoneTitle = $('recDoneTitle');
+const recVideo = $('recVideo'), recNote = $('recNote'), recSave = $('recSave'), recAgain = $('recAgain'), recClose = $('recClose');
 const fileIn = $('songFile'), applyBtn = $('applyBtn'), popEl = $('pop'), popOut = $('popOut');
 const spot = $('spot'), spSetup = $('spSetup'), spLive = $('spLive'), spUri = $('spUri'), spCopy = $('spCopy'), spClient = $('spClient'), spConnectBtn = $('spConnect');
 const spArt = $('spArt'), spTitle = $('spTitle'), spArtist = $('spArtist'), spFollow = $('spFollow'), spOut = $('spOut'), spStatus = $('spStatus');
@@ -854,9 +904,13 @@ function play() {
   }
   if (pausedAt >= track.duration - 0.05) { pausedAt = 0; resetFlags(); }
   const s = c.createBufferSource();
-  s.buffer = track.ab; s.connect(gain); s.start(0, pausedAt);
+  s.buffer = track.ab; s.connect(gain); if (recDest) s.connect(recDest); s.start(0, pausedAt);
   startCtx = c.currentTime; startOff = pausedAt; src = s; playing = true;
-  s.onended = () => { if (src === s && playing) { stopSrc(); playing = false; pausedAt = track.duration; lockScreen(false); updateUI(); } };
+  s.onended = () => {
+    if (src !== s || !playing) return;
+    stopSrc(); playing = false; pausedAt = track.duration; lockScreen(false); updateUI();
+    if (recorder) setTimeout(stopRecording, 700);   // a song you loaded ends the video when it ends
+  };
   lockScreen(true); updateUI();
 }
 function pause() {
@@ -1395,7 +1449,7 @@ function frame(now) {
   }
   g.restore();
 
-  if (!playing) {
+  if (!playing && !recorder) {
     g.fillStyle = 'rgba(242,238,252,0.5)'; g.font = '500 11px ' + MONO;
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText(track && track.spotify ? 'PAUSED IN SPOTIFY' : 'TAP TO PLAY', W / 2, H - 28);
@@ -1429,9 +1483,10 @@ function updateLift() {
   document.documentElement.style.setProperty('--lift', (-lift) + 'px');
 }
 function resize() {
-  const w = stage.clientWidth, h = stage.clientHeight;
+  // while recording, the canvas is the video: a fixed 9:16 frame at 2x, whatever the screen
+  const w = recorder ? REC_W : stage.clientWidth, h = recorder ? REC_H : stage.clientHeight;
   if (w < 2 || h < 2) return;
-  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  dpr = recorder ? 2 : Math.min(window.devicePixelRatio || 1, 2);
   W = w; H = h;
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
   stPreview.style.aspectRatio = W + ' / ' + H;   // the studio monitor shows the video at its real shape
@@ -1514,11 +1569,16 @@ function setClean(on) {
 }
 cleanBtn.addEventListener('click', () => setClean(true));
 exitBtn.addEventListener('click', () => setClean(false));
-stage.addEventListener('click', () => { togglePlay(); if (clean()) showExit(); });
+stage.addEventListener('click', () => {
+  if (recorder) { studioPlay(); return; }
+  togglePlay(); if (clean()) showExit();
+});
 stage.addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); togglePlay(); } });
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
-  if (studioOpen) closeStudio(); else if (clean()) setClean(false); else if (isOpen()) setDeck(false);
+  if (recorder) stopRecording();
+  else if (!recDone.hidden) recClose.click();
+  else if (studioOpen) closeStudio(); else if (clean()) setClean(false); else if (isOpen()) setDeck(false);
 });
 
 /* ---------- Spotify: follow what's playing, pull its synced lyrics from LRCLIB ---------- */
@@ -2331,8 +2391,98 @@ stBack.addEventListener('click', closeStudio);
 stPlay.addEventListener('click', studioPlay);
 stPreview.addEventListener('click', studioPlay);
 stPreview.addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); studioPlay(); } });
-stRecord.addEventListener('click', () => { closeStudio(); setClean(true); });
+stRecord.addEventListener('click', () => startRecording());
 stReset.addEventListener('click', () => { S = Object.assign({}, STUDIO_DEFAULTS); saveStudio(); loadFont(fontOf()); epoch++; refreshStudio(); });
+
+/* ---------- recording: the video canvas straight into a file, so nothing laid on top of it is ever in the video ---------- */
+const REC_W = 540, REC_H = 960;   // drawn at 2x: a 1080 x 1920 vertical video
+let recorder = null, recChunks = [], recDest = null, recStart = 0, recTimer = 0, recBlob = null, recUrl = '', recSilent = true;
+const recType = () => ['video/mp4;codecs=avc1.640028', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm']
+  .find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+function startRecording() {
+  closeStudio();
+  setClean(true);
+  if (!window.MediaRecorder || !cv.captureStream) {
+    showDone(null, "This browser can't record video. Clean view is on, so you can use your phone's screen recording instead.");
+    return;
+  }
+  exitBtn.hidden = true;
+  recorder = true;   // resize() reads this: from here on the canvas is the video's size
+  document.body.classList.add('recording');
+  resize();
+  const stream = cv.captureStream(30);
+  // a song played in Tunely goes into the video; Spotify keeps its sound to itself
+  recSilent = true;
+  if (track && !track.spotify) {
+    try { recDest = getCtx().createMediaStreamDestination(); if (src) src.connect(recDest); stream.addTrack(recDest.stream.getAudioTracks()[0]); recSilent = false; }
+    catch (e) { recDest = null; }
+  }
+  const type = recType();
+  recChunks = [];
+  try { recorder = new MediaRecorder(stream, type ? { mimeType: type, videoBitsPerSecond: 8e6 } : { videoBitsPerSecond: 8e6 }); }
+  catch (e) {
+    recorder = null; endRecordingUI();
+    showDone(null, "This browser couldn't start recording. Clean view is on, so you can use your phone's screen recording instead.");
+    return;
+  }
+  recorder.ondataavailable = e => { if (e.data && e.data.size) recChunks.push(e.data); };
+  recorder.onstop = finishRecording;
+  recorder.start(1000);
+  recStart = performance.now(); recBar.hidden = false; tickRec(); recTimer = setInterval(tickRec, 500);
+  lockScreen(true);
+  if (!playing) studioPlay();   // the music starts with the recording
+}
+function tickRec() {
+  const s = Math.floor((performance.now() - recStart) / 1000);
+  recTime.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+function stopRecording() { if (recorder && recorder.state !== 'inactive') recorder.stop(); }
+function finishRecording() {
+  const type = (recorder && recorder.mimeType) || recType() || 'video/webm';
+  recorder = null;
+  endRecordingUI();
+  recBlob = new Blob(recChunks, { type }); recChunks = [];
+  showDone(recBlob);
+}
+function endRecordingUI() {
+  clearInterval(recTimer); recBar.hidden = true;
+  if (recDest) { try { if (src) src.disconnect(recDest); } catch (e) {} recDest = null; }
+  document.body.classList.remove('recording');
+  resize();
+  if (!playing) lockScreen(false);
+}
+function showDone(blob, problem) {
+  if (recUrl) { URL.revokeObjectURL(recUrl); recUrl = ''; }
+  recDoneTitle.textContent = blob ? 'Your video is ready' : "Recording isn't available";
+  recVideo.hidden = recSave.hidden = recAgain.hidden = !blob;
+  if (blob) { recUrl = URL.createObjectURL(blob); recVideo.src = recUrl; recVideo.play().catch(() => {}); }
+  recNote.textContent = problem || 'Save to phone opens the share sheet: Save Video puts it in Photos, or pick TikTok. '
+    + (recSilent ? "It's silent, so add the song from TikTok's sound library." : 'The song is in the video.');
+  recDone.hidden = false;
+  (blob ? recSave : recClose).focus();
+}
+function closeDone() {
+  recDone.hidden = true; recVideo.removeAttribute('src'); recVideo.load();
+  if (recUrl) { URL.revokeObjectURL(recUrl); recUrl = ''; }
+}
+const recName = () => {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  return 'Tunely ' + d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + '.' + p(d.getMinutes()) + (recBlob.type.includes('mp4') ? '.mp4' : '.webm');
+};
+recEnd.addEventListener('click', stopRecording);
+recSave.addEventListener('click', async () => {
+  if (!recBlob) return;
+  const file = new File([recBlob], recName(), { type: recBlob.type.split(';')[0] });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); recNote.textContent = 'Done. Pick Save Video in the share sheet to keep it in Photos.'; return; }
+    catch (e) { if (e.name === 'AbortError') return; }
+  }
+  // no share sheet here: download the file instead
+  const a = el('a'); a.href = recUrl; a.download = file.name; document.body.append(a); a.click(); a.remove();
+  recNote.textContent = 'Downloaded. On an iPhone it lands in the Files app, under Downloads.';
+});
+recAgain.addEventListener('click', () => { closeDone(); startRecording(); });
+recClose.addEventListener('click', () => { closeDone(); setClean(false); openStudio(); });
 
 /* ---------- start ---------- */
 buildStudio();
