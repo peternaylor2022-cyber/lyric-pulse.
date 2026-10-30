@@ -274,7 +274,7 @@ body.playing .arm { transform: rotate(26deg); }
     inset 0 1px 0 rgba(255, 255, 255, .1), inset 0 -2px 5px rgba(0, 0, 0, .35),
     0 1px 0 #161120, 0 2px 1px rgba(0, 0, 0, .7), 0 4px 8px -3px rgba(0, 0, 0, .9);
 }
-.pad:focus-visible, .pad:focus-within { outline: 2px solid var(--violet); outline-offset: 3px; }
+.pad:focus-visible, .pad:has(:focus-visible) { outline: 2px solid var(--violet); outline-offset: 3px; }
 .pad .led { position: absolute; top: 6px; right: 6px; width: 6px; height: 6px; border-radius: 50%; background: #2a2239; box-shadow: inset 0 1px 1px #000; }
 .pad.on .led { background: var(--led); box-shadow: 0 0 8px var(--led), 0 0 2px #fff; }
 .pad.on:not(.hot) { border-color: #54447a; }
@@ -327,12 +327,27 @@ body.playing .arm { transform: rotate(26deg); }
 .uri code { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font: 400 11px/1.45 var(--mono); color: #dcd0ff; }
 .field { display: block; width: 100%; height: 40px; padding: 0 12px; color: #dcd0ff; caret-color: var(--accent); border: 1px solid #000; border-radius: 8px; font: 400 12.5px/1 var(--mono); }
 .field:focus-visible { outline: 2px solid var(--violet); outline-offset: 7px; }
-.now { display: flex; gap: 12px; align-items: center; min-width: 0; }
-.now img { flex: none; width: 52px; height: 52px; border-radius: 6px; object-fit: cover; background: #05030a; box-shadow: 0 0 0 3px #17121f, 0 0 0 4px #352b4c, 0 6px 10px rgba(0, 0, 0, .6); }
-.now div { display: grid; gap: 3px; min-width: 0; }
-.now b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 15px/1.25 var(--display); color: var(--fg); }
-.now span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 11px/1.3 var(--mono); color: var(--muted); }
 .spot .pads { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+/* now playing: the song on Spotify with its cover, and keys to pause and skip */
+.np {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px 16px; align-items: center;
+  margin-bottom: 22px; padding: 12px; border-radius: 14px;
+  background: #08060d;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, .9), inset 0 0 0 1px #1d1729, 0 1px 0 rgba(255, 255, 255, .05);
+}
+.np-art {
+  grid-row: 1 / 3; width: 96px; height: 96px; border-radius: 8px;
+  background-color: #05030a; background-position: center; background-size: cover;
+  background-image: conic-gradient(from 20deg, var(--violet), var(--accent), #ff8a3d, var(--accent), var(--violet));
+  box-shadow: 0 0 0 3px #17121f, 0 0 0 4px #352b4c, 0 8px 16px rgba(0, 0, 0, .7), 0 0 26px -6px var(--led);
+}
+.np-tx { display: grid; gap: 3px; min-width: 0; align-self: end; }
+.np-tx b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 16px/1.25 var(--display); color: var(--fg); }
+.np-tx span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 11px/1.3 var(--mono); color: var(--muted); }
+.np-keys { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; max-width: 236px; align-self: start; }
+.np-keys .pad { min-height: 42px; padding: 0; }
+@media (min-width: 860px) { .np-art { width: 112px; height: 112px; } }
 .spot .status { margin: 0; }
 
 /* waveform display */
@@ -444,6 +459,15 @@ textarea:focus-visible { outline: 2px solid var(--violet); outline-offset: 7px; 
     </button>
     <div class="deck-body" id="deckBody" inert>
       <div class="deck-in">
+        <div class="np" id="np" hidden>
+          <div class="np-art" id="spArt" role="img" aria-label="Album cover"></div>
+          <div class="np-tx"><b id="spTitle">Nothing playing yet</b><span id="spArtist">Start a song in Spotify</span></div>
+          <div class="np-keys">
+            <button class="pad" id="npPrev" type="button" aria-label="Previous song"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 2h2v10H2zM12 2v10L5 7z" fill="currentColor"/></svg></button>
+            <button class="pad hot" id="npPlay" type="button" aria-label="Play"></button>
+            <button class="pad" id="npNext" type="button" aria-label="Next song"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M10 2h2v10h-2zM2 2v10l7-5z" fill="currentColor"/></svg></button>
+          </div>
+        </div>
         <div class="booth">
           <div class="pl" aria-hidden="true"><div class="platter"><div class="disc" id="discL"><i class="mark"></i><i class="lab"></i></div><i class="arm"></i></div><span class="silk">Deck A</span></div>
           <div class="vu"><canvas id="vu" aria-hidden="true"></canvas></div>
@@ -484,7 +508,6 @@ textarea:focus-visible { outline: 2px solid var(--violet); outline-offset: 7px; 
                 <button class="pad" id="spConnect" type="button">Connect Spotify</button>
               </div>
               <div class="spot-live" id="spLive" hidden>
-                <div class="now"><img id="spArt" alt="" hidden><div><b id="spTitle">Nothing playing yet</b><span id="spArtist">Start a song in Spotify</span></div></div>
                 <div class="pads"><button class="pad on" id="spFollow" type="button" aria-pressed="true"><i class="led"></i>Follow</button><button class="pad" id="spOut" type="button">Log out</button></div>
               </div>
               <p class="status" id="spStatus" aria-live="polite"></p>
@@ -539,6 +562,7 @@ const crowdBtn = $('crowdBtn'), cleanBtn = $('cleanBtn'), exitBtn = $('exitClean
 const fileIn = $('songFile'), applyBtn = $('applyBtn'), popEl = $('pop'), popOut = $('popOut');
 const spot = $('spot'), spSetup = $('spSetup'), spLive = $('spLive'), spUri = $('spUri'), spCopy = $('spCopy'), spClient = $('spClient'), spConnectBtn = $('spConnect');
 const spArt = $('spArt'), spTitle = $('spTitle'), spArtist = $('spArtist'), spFollow = $('spFollow'), spOut = $('spOut'), spStatus = $('spStatus');
+const np = $('np'), npPrev = $('npPrev'), npPlay = $('npPlay'), npNext = $('npNext');
 
 const ICON_PLAY = '<svg width="13" height="13" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 1.5v11l9-5.5z" fill="currentColor"/></svg>';
 const ICON_PAUSE = '<svg width="13" height="13" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 1.5h3v11H3zM8 1.5h3v11H8z" fill="currentColor"/></svg>';
@@ -749,6 +773,9 @@ function updateUI() {
   playBtn.classList.toggle('on', playing);
   document.body.classList.toggle('playing', playing);
   playBtn.disabled = restartBtn.disabled = seek.disabled = !!(track && track.spotify);
+  npPlay.innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
+  npPlay.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+  npPlay.classList.toggle('on', playing);
 }
 
 /* ---------- layout of one lyric line ---------- */
@@ -1192,7 +1219,7 @@ document.addEventListener('keydown', e => {
 
 /* ---------- Spotify: follow what's playing, pull its synced lyrics from LRCLIB ---------- */
 const SP_ACCOUNTS = 'https://accounts.spotify.com', SP_API = 'https://api.spotify.com/v1';
-const SP_SCOPES = 'user-read-currently-playing user-read-playback-state';
+const SP_SCOPES = 'user-read-currently-playing user-read-playback-state user-modify-playback-state';
 const LRCLIB = 'https://lrclib.net/api', lrcInit = { headers: { 'Lrclib-Client': 'Tunely' } };
 const spRedirect = location.origin + location.pathname;
 const store = {
@@ -1200,7 +1227,7 @@ const store = {
   set: (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} },
 };
 let sp = null, spNow = null, following = false, spTimer = 0, spBusy = false, spRefreshing = null, lyricReq = 0;
-let spNote = ['', false], spAlert = false;
+let spNote = ['', false], spAlert = false, spAlertUntil = 0, spExpect = null;
 try { sp = JSON.parse(store.get('lp.sp.auth')); } catch (e) {}
 
 const b64url = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -1208,7 +1235,7 @@ const randomKey = n => b64url(crypto.getRandomValues(new Uint8Array(n)));
 function setSpStatus(msg, err) { spStatus.textContent = msg; spStatus.classList.toggle('err', !!err); }
 // spTell sets the standing note for the current song; spSay shows something passing that the note replaces once music comes back
 function spTell(msg, err) { spNote = [msg, !!err]; spAlert = false; setSpStatus(msg, err); }
-function spSay(msg, err) { spAlert = true; setSpStatus(msg, err); }
+function spSay(msg, err, hold) { spAlert = true; spAlertUntil = performance.now() + (hold || 0); setSpStatus(msg, err); }
 
 // Spotify sign-in needs a real web address in a top-level tab
 function spBlocker() {
@@ -1238,15 +1265,15 @@ async function spToken(params) {
   });
   if (!r.ok) throw new Error('auth');
   const j = await r.json();
-  sp = { token: j.access_token, refresh: j.refresh_token || (sp && sp.refresh), exp: Date.now() + j.expires_in * 1000 };
+  sp = { token: j.access_token, refresh: j.refresh_token || (sp && sp.refresh), exp: Date.now() + j.expires_in * 1000, scope: j.scope || (sp && sp.scope) || '' };
   store.set('lp.sp.auth', JSON.stringify(sp));
 }
 const spRefresh = () => spRefreshing || (spRefreshing = spToken({ grant_type: 'refresh_token', refresh_token: sp.refresh }).finally(() => { spRefreshing = null; }));
-async function spGet(path) {
+async function spFetch(path, method = 'GET') {
   if (sp.exp - Date.now() < 60000) await spRefresh();
-  const get = () => fetch(SP_API + path, { headers: { Authorization: 'Bearer ' + sp.token } });
-  let r = await get();
-  if (r.status === 401) { await spRefresh(); r = await get(); }
+  const go = () => fetch(SP_API + path, { method, headers: { Authorization: 'Bearer ' + sp.token } });
+  let r = await go();
+  if (r.status === 401) { await spRefresh(); r = await go(); }
   return r;
 }
 
@@ -1262,7 +1289,7 @@ async function poll() {
   if (!document.hidden) {
     spBusy = true;
     try {
-      const t0 = performance.now(), r = await spGet('/me/player/currently-playing');
+      const t0 = performance.now(), r = await spFetch('/me/player/currently-playing');
       const at = (t0 + performance.now()) / 2;
       if (!following || !sp) return;
       if (r.status === 204) spIdle('Nothing is playing on Spotify right now.');
@@ -1289,11 +1316,13 @@ function spUpdate(j, at) {
     return;
   }
   const id = it.id || it.uri, prog = (j.progress_ms || 0) / 1000, on = !!j.is_playing;
+  // a play or pause sent from the keys takes Spotify a moment to show up in its reports
+  if (spExpect) { if (on === spExpect.on || performance.now() > spExpect.until) spExpect = null; else return; }
   if (!track || track.spotifyId !== id) { spNow = { progress: prog, at, on }; spLoad(it, id); }
   else {
     // only jump on a real seek or drift, so words don't stutter on every report
     if (on !== spNow.on || Math.abs(spPredict(at) - prog) > 0.35) spNow = { progress: prog, at, on };
-    if (spAlert) spTell(...spNote);
+    if (spAlert && performance.now() > spAlertUntil) spTell(...spNote);
   }
   if (playing !== on) { playing = on; lockScreen(on); updateUI(); }
 }
@@ -1305,7 +1334,8 @@ function spLoad(it, id) {
   tr.norm = lyricEnergy(tr.duration, '');
   setTrack(tr, '');
   spTitle.textContent = tr.name; spArtist.textContent = tr.artist;
-  spArt.hidden = !art; if (art) spArt.src = art.url;
+  spArt.style.backgroundImage = art ? 'url("' + art.url + '")' : '';
+  spArt.setAttribute('aria-label', 'Cover of ' + (tr.album || tr.name));
   setStatus('Spotify · ' + tr.name + ' · ' + fmt(tr.duration));
   spTell('Looking up lyrics…');
   const req = ++lyricReq;
@@ -1353,11 +1383,44 @@ function lyricEnergy(dur, lrc) {
   return norm;
 }
 
+// the now-playing keys: Spotify plays, pauses and skips on whichever device is playing
+async function spControl(action) {
+  if (!sp) return;
+  if (!/user-modify-playback-state/.test(sp.scope || '')) {
+    spSay('Spotify needs one more OK before Tunely can pause and skip. Opening Spotify…');
+    setTimeout(() => { spConnect().catch(() => spTell('Could not open Spotify. Try again.', true)); }, 900);
+    return;
+  }
+  const on = playing, toggle = action === 'toggle';
+  const method = toggle ? 'PUT' : 'POST';
+  const path = toggle ? (on ? '/me/player/pause' : '/me/player/play') : action === 'next' ? '/me/player/next' : '/me/player/previous';
+  if (toggle && track && track.spotify && spNow) {
+    // flip the key right away; Spotify's next report confirms it
+    spNow = { progress: spPredict(performance.now()), at: performance.now(), on: !on };
+    spExpect = { on: !on, until: performance.now() + 2500 };
+    playing = !on; lockScreen(playing); updateUI();
+  }
+  try {
+    const r = await spFetch(path, method);
+    if (!r.ok) spExpect = null;
+    if (r.status === 404) spSay('Spotify has no active device. Start Spotify on your phone or another device, then try again.', true, 6000);
+    else if (r.status === 403) spSay("Spotify won't do that right now.", true, 6000);
+    else if (!r.ok) spSay('Spotify answered with error ' + r.status + '.', true, 6000);
+  } catch (e) {
+    spExpect = null;
+    if (e.message === 'auth') { spSignOut('Spotify ended the session. Connect again.'); return; }
+    spSay("Can't reach Spotify. Try again.", true, 6000);
+  }
+  // check back soon so the new song or state shows up
+  if (following) { clearTimeout(spTimer); spTimer = setTimeout(poll, 600); }
+}
+
 function setFollow(on) {
   following = on && !!sp;
   spFollow.classList.toggle('on', following);
   spFollow.setAttribute('aria-pressed', following ? 'true' : 'false');
   spot.classList.toggle('live', following);
+  np.hidden = !following;
   clearTimeout(spTimer);
   if (following) { pause(); spSay('Checking what Spotify is playing…'); poll(); return; }
   spHold();
@@ -1394,6 +1457,9 @@ async function spInit() {
 spConnectBtn.addEventListener('click', () => { spConnect().catch(() => spTell('Could not start Spotify sign-in. Try again.', true)); });
 spClient.addEventListener('keydown', e => { if (e.key === 'Enter') spConnectBtn.click(); });
 spFollow.addEventListener('click', () => setFollow(!following));
+npPrev.addEventListener('click', () => spControl('prev'));
+npPlay.addEventListener('click', () => spControl('toggle'));
+npNext.addEventListener('click', () => spControl('next'));
 spOut.addEventListener('click', () => spSignOut('Logged out of Spotify.'));
 spCopy.addEventListener('click', () => {
   const pick = () => { const r = document.createRange(); r.selectNodeContents(spUri); const s = getSelection(); s.removeAllRanges(); s.addRange(r); };
