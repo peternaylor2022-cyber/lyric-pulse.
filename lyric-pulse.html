@@ -246,9 +246,9 @@ body.playing .arm { transform: rotate(26deg); }
 
 /* pads: rubber caps with real travel */
 .pads { display: grid; gap: 12px 10px; align-content: start; }
-.pads.trans { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.pads.trans { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .pads.load { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-@media (min-width: 860px) { .pads.trans { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 860px) { .pads.trans { grid-template-columns: repeat(2, minmax(0, 1fr)); } #cleanBtn { grid-column: 1 / -1; } }
 .pad {
   position: relative;
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
@@ -303,7 +303,6 @@ body.playing .arm { transform: rotate(26deg); }
 }
 .pad.hot.on .led { background: #fff; box-shadow: 0 0 8px #fff; }
 .pad.sm { min-height: 40px; padding: 0 14px; }
-.pad.wide { grid-column: 1 / -1; min-height: 42px; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; opacity: 0; }
 .status { grid-column: 1 / -1; margin: 2px 0 0; font: 400 11px/1.55 var(--mono); color: var(--muted); }
 .status.err { color: var(--danger); }
@@ -347,6 +346,9 @@ body.playing .arm { transform: rotate(26deg); }
 .np-tx span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 11px/1.3 var(--mono); color: var(--muted); }
 .np-keys { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; max-width: 236px; align-self: start; }
 .np-keys .pad { min-height: 42px; padding: 0; }
+.np-sync { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; }
+.np-sync .pad { min-height: 36px; padding: 0 12px; }
+.np-sync output { flex: 1 1 auto; min-width: 0; text-align: center; font: 500 12px/1.3 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
 @media (min-width: 860px) { .np-art { width: 112px; height: 112px; } }
 .spot .status { margin: 0; }
 
@@ -467,6 +469,11 @@ textarea:focus-visible { outline: 2px solid var(--violet); outline-offset: 7px; 
             <button class="pad hot" id="npPlay" type="button" aria-label="Play"></button>
             <button class="pad" id="npNext" type="button" aria-label="Next song"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M10 2h2v10h-2zM2 2v10l7-5z" fill="currentColor"/></svg></button>
           </div>
+          <div class="np-sync">
+            <button class="pad sm" id="syncEarly" type="button" aria-label="Show lyrics earlier">Earlier</button>
+            <output id="syncOut" aria-live="polite"></output>
+            <button class="pad sm" id="syncLate" type="button" aria-label="Show lyrics later">Later</button>
+          </div>
         </div>
         <div class="booth">
           <div class="pl" aria-hidden="true"><div class="platter"><div class="disc" id="discL"><i class="mark"></i><i class="lab"></i></div><i class="arm"></i></div><span class="silk">Deck A</span></div>
@@ -482,11 +489,9 @@ textarea:focus-visible { outline: 2px solid var(--violet); outline-offset: 7px; 
           </div>
 
           <div class="pads trans">
-            <button class="pad hot" id="playBtn" type="button"><i class="led"></i><span id="playIc"></span><span id="playTx">Play</span></button>
-            <button class="pad" id="restartBtn" type="button">Restart</button>
             <button class="pad on" id="soundBtn" type="button" aria-pressed="true"><i class="led"></i>Sound</button>
             <button class="pad on" id="crowdBtn" type="button" aria-pressed="true"><i class="led"></i>Crowd</button>
-            <button class="pad wide" id="cleanBtn" type="button">Clean view</button>
+            <button class="pad" id="cleanBtn" type="button">Clean view</button>
             <p class="tip">To record: Sound off, Clean view, tap the screen to play. Add the song from TikTok's sound library.</p>
           </div>
 
@@ -557,12 +562,12 @@ const world = $('world'), stage = $('stage'), cam = $('cam'), cv = $('cv'), g = 
 const tl = $('tl'), tg = tl.getContext('2d'), vu = $('vu'), vg = vu.getContext('2d');
 const deck = $('deck'), grip = $('grip'), gripTx = $('gripTx'), deckBody = $('deckBody'), discL = $('discL'), discR = $('discR');
 const seek = $('seek'), lyricsEl = $('lyrics'), statusEl = $('status');
-const playBtn = $('playBtn'), playIc = $('playIc'), playTx = $('playTx'), restartBtn = $('restartBtn'), soundBtn = $('soundBtn');
+const soundBtn = $('soundBtn');
 const crowdBtn = $('crowdBtn'), cleanBtn = $('cleanBtn'), exitBtn = $('exitClean'), demoBtn = $('demoBtn');
 const fileIn = $('songFile'), applyBtn = $('applyBtn'), popEl = $('pop'), popOut = $('popOut');
 const spot = $('spot'), spSetup = $('spSetup'), spLive = $('spLive'), spUri = $('spUri'), spCopy = $('spCopy'), spClient = $('spClient'), spConnectBtn = $('spConnect');
 const spArt = $('spArt'), spTitle = $('spTitle'), spArtist = $('spArtist'), spFollow = $('spFollow'), spOut = $('spOut'), spStatus = $('spStatus');
-const np = $('np'), npPrev = $('npPrev'), npPlay = $('npPlay'), npNext = $('npNext');
+const np = $('np'), npPrev = $('npPrev'), npPlay = $('npPlay'), npNext = $('npNext'), syncEarly = $('syncEarly'), syncLate = $('syncLate'), syncOut = $('syncOut');
 
 const ICON_PLAY = '<svg width="13" height="13" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 1.5v11l9-5.5z" fill="currentColor"/></svg>';
 const ICON_PAUSE = '<svg width="13" height="13" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 1.5h3v11H3zM8 1.5h3v11H8z" fill="currentColor"/></svg>';
@@ -653,13 +658,23 @@ function maxNorm(t0, t1) {
 }
 
 /* ---------- lyrics ---------- */
+const wordStamp = /^<(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?>$/;
 function prepWords(l) {
-  const toks = l.text.split(/\s+/).filter(Boolean);
+  // word-timed lyrics put a stamp before each word, like "<00:12.40> can"; use those when they're there
+  const toks = [], stamps = [];
+  let next = null;
+  for (const piece of l.text.split(/(<\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?>)/)) {
+    const m = piece.match(wordStamp);
+    if (m) { next = (+m[1]) * 60 + (+m[2]) + (m[3] ? +('0.' + m[3]) : 0); continue; }
+    for (const w of piece.split(/\s+/).filter(Boolean)) { toks.push(w); stamps.push(next); next = null; }
+  }
+  l.text = toks.join(' ');
   const total = toks.reduce((s, w) => s + w.length + 1, 0) || 1;
-  const span = clamp(toks.length * 0.45, 0.2, l.hold * 0.8);
+  // otherwise spread the words over most of the line's time, at a sung pace of about 0.6 s a word at most
+  const span = clamp(Math.min(l.hold * 0.85 - 0.25, toks.length * 0.62), 0.2, l.hold * 0.9);
   let acc = 0;
   l.words = toks.map((text, i) => {
-    const t0 = l.t + span * (acc / total);
+    const t0 = stamps[i] != null ? stamps[i] : l.t + span * (acc / total);
     acc += text.length + 1;
     // Spotify tracks have no audio here, so lean on the words: the last word of a line and long words land harder
     const accent = track && track.spotify ? (i === toks.length - 1 ? 0.12 : 0) + (text.length > 5 ? 0.06 : 0) - 0.05 : 0;
@@ -768,11 +783,8 @@ function setTrack(tr, lrc) {
 }
 function setStatus(msg, err) { statusEl.textContent = msg; statusEl.classList.toggle('err', !!err); }
 function updateUI() {
-  playIc.innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
-  playTx.textContent = playing ? 'Pause' : 'Play';
-  playBtn.classList.toggle('on', playing);
   document.body.classList.toggle('playing', playing);
-  playBtn.disabled = restartBtn.disabled = seek.disabled = !!(track && track.spotify);
+  seek.disabled = !!(track && track.spotify);
   npPlay.innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
   npPlay.setAttribute('aria-label', playing ? 'Pause' : 'Play');
   npPlay.classList.toggle('on', playing);
@@ -1145,8 +1157,6 @@ grip.addEventListener('click', () => setDeck(!isOpen()));
 deck.addEventListener('click', e => { if (!isOpen() && !grip.contains(e.target)) setDeck(true); });
 
 /* ---------- controls ---------- */
-playBtn.addEventListener('click', togglePlay);
-restartBtn.addEventListener('click', () => { seekTo(0); play(); });
 soundBtn.addEventListener('click', () => {
   soundOn = !soundOn;
   if (gain) gain.gain.value = soundOn ? 1 : 0;
@@ -1279,7 +1289,19 @@ async function spFetch(path, method = 'GET') {
 
 // Spotify reports the position every few seconds; between reports the clock runs on locally
 const spPredict = at => spNow.progress + (spNow.on ? (at - spNow.at) / 1000 : 0);
-function spClock() { return spNow ? clamp(spPredict(performance.now()), 0, track.duration) : 0; }
+function spClock() { return spNow ? clamp(spPredict(performance.now()) - spDelay, 0, track.duration) : 0; }
+
+// Bluetooth headphones and speakers play a beat behind Spotify's clock, so the lyrics wait a little; the card's keys tune it
+let spDelay = 0.3;
+{ const d = parseFloat(store.get('lp.sp.delay')); if (Number.isFinite(d)) spDelay = d; }
+function showDelay() {
+  syncOut.textContent = Math.abs(spDelay) < 0.05 ? 'Lyrics on time' : 'Lyrics ' + Math.abs(spDelay).toFixed(1) + ' s ' + (spDelay > 0 ? 'later' : 'earlier');
+}
+function nudgeDelay(d) {
+  spDelay = clamp(Math.round((spDelay + d) * 10) / 10, -3, 3);
+  store.set('lp.sp.delay', String(spDelay));
+  showDelay();
+}
 function spHold() { if (spNow) spNow = { progress: spPredict(performance.now()), at: performance.now(), on: false }; }
 
 async function poll() {
@@ -1435,6 +1457,7 @@ function spSignOut(msg) {
 }
 async function spInit() {
   spUri.textContent = spRedirect;
+  showDelay();
   spClient.value = store.get('lp.sp.client') || '';
   spRender();
   const block = spBlocker();
@@ -1460,6 +1483,8 @@ spFollow.addEventListener('click', () => setFollow(!following));
 npPrev.addEventListener('click', () => spControl('prev'));
 npPlay.addEventListener('click', () => spControl('toggle'));
 npNext.addEventListener('click', () => spControl('next'));
+syncEarly.addEventListener('click', () => nudgeDelay(-0.1));
+syncLate.addEventListener('click', () => nudgeDelay(0.1));
 spOut.addEventListener('click', () => spSignOut('Logged out of Spotify.'));
 spCopy.addEventListener('click', () => {
   const pick = () => { const r = document.createRange(); r.selectNodeContents(spUri); const s = getSelection(); s.removeAllRanges(); s.addRange(r); };
