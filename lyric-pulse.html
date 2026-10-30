@@ -1165,6 +1165,7 @@ function wordHSL(w) {
   return [fixedHSL[0], fixedHSL[1], clamp(fixedHSL[2], 45, 88), fixedHSL[0]];
 }
 
+const hash01 = (a, b) => { const x = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return x - Math.floor(x); };   // steady pseudo-random 0..1
 const easeOutBounce = t => t < 1 / 2.75 ? 7.5625 * t * t : t < 2 / 2.75 ? 7.5625 * (t -= 1.5 / 2.75) * t + 0.75 : t < 2.5 / 2.75 ? 7.5625 * (t -= 2.25 / 2.75) * t + 0.9375 : 7.5625 * (t -= 2.625 / 2.75) * t + 0.984375;
 // a: seconds since the word came in (99 once settled). out: how far along its way out it is, 0 to 1.
 function drawWord(w, a, out) {
@@ -1180,7 +1181,25 @@ function drawWord(w, a, out) {
     case 'spin': s = easeOutBack(p); rot = (1 - easeOutCubic(p)) * 2.4 * dir; break;
     case 'glitch': if (A < 0.4) { ox = (Math.random() - 0.5) * size * 0.3 * (1 - A / 0.4); if (Math.random() < 0.2) am = 0.25; } break;
   }
-  s *= 1 + 0.09 * live * (0.4 + w.lw);
+  // how the word moves while it's on screen, scaled by the studio's Motion strength and speed
+  const mo = S.motion, mk = S.motionAmt, T = time * S.motionSpeed;
+  let mx = 0, my = 0, mr = 0, glitching = false;
+  if (mo !== 'still') s *= 1 + 0.09 * live * (0.4 + w.lw) * mk;
+  switch (mo) {
+    case 'wiggle': mx = Math.sin(T * 0.9 + w.i * 1.7) * 0.05; my = Math.cos(T * 0.7 + w.i * 1.1) * 0.06; break;
+    case 'float': mx = Math.sin(T * 0.5 + w.i) * 0.03; my = Math.sin(T * 1.1 + w.i * 0.9) * 0.12; break;
+    case 'bounce': my = -Math.abs(Math.sin(T * 6.2832 + w.i * 0.5)) * 0.16 * (0.35 + live); break;
+    case 'pulse': s *= 1 + (0.05 * Math.sin(T * 4 + w.i) + 0.16 * live * (0.5 + w.lw)) * mk; break;
+    case 'swing': mr = Math.sin(T * 1.8 + w.i * 0.8) * 0.12; break;
+    case 'shake': { const j = 0.06 * (0.4 + live); mx = (Math.random() - 0.5) * j; my = (Math.random() - 0.5) * j; mr = (Math.random() - 0.5) * 0.06; break; }
+    case 'glitch': {
+      const slot = Math.floor(T * 10);
+      glitching = hash01(slot, w.i) < 0.12 * mk + 0.05 * live;
+      if (glitching) { mx = (hash01(slot + 7, w.i) - 0.5) * 0.4; my = (hash01(slot + 3, w.i) - 0.5) * 0.08; }
+      break;
+    }
+  }
+  mx *= size * mk; my *= size * mk; mr *= mk;
   if (out > 0) {
     switch (S.disappear) {
       case 'float': oy -= out * H * 0.07; am *= 1 - out; break;
@@ -1193,14 +1212,17 @@ function drawWord(w, a, out) {
   }
   if (s < 0.02 || am < 0.01) return;
   const [hue, sat, lig, gh] = wordHSL(w), es = S.color === 'loud' ? 100 : sat, glow = S.glowAmt;
-  const dx = Math.sin(time * 0.9 + w.i * 1.7) * size * 0.05, dyy = Math.cos(time * 0.7 + w.i * 1.1) * size * 0.06;
   const x0 = -w.w / 2, amp = 0.015 + 0.085 * live * w.lw + 0.02 * (1 - w.lw), soft = 0.72 + 0.28 * w.lw;
-  const dissolving = out > 0 && S.disappear === 'dissolve';
+  const dissolving = out > 0 && S.disappear === 'dissolve', slot = Math.floor(T * 10);
+  // per-letter motion: wiggle bobs, flow rolls a wave through the word, glitch knocks a few letters off line
+  const letterY = (i, tt) => mo === 'wiggle' ? Math.sin(tt * 2.4 + i * 0.75 + w.i) * size * amp * mk
+    : mo === 'flow' ? Math.sin(tt * 3 - i * 0.55 + w.i * 0.9) * size * 0.11 * mk
+    : glitching && hash01(slot + i, w.i) < 0.3 ? (hash01(i + 5, slot) - 0.5) * size * 0.4 * mk : 0;
   g.save();
-  g.translate(w.x + dx + ox, w.y + dyy + oy); g.rotate(rot); g.scale(s, s);
+  g.translate(w.x + mx + ox, w.y + my + oy); g.rotate(rot + mr); g.scale(s, s);
   g.font = fontCss(w.font, w.weight, size); g.textBaseline = 'middle'; g.textAlign = 'left';
   const pass = (k, alpha) => {
-    const tt = time - k * 0.08;
+    const tt = T - k * 0.08 * S.motionSpeed;
     for (let i = 0; i < w.chars.length; i++) {
       let la = 1, ly = 0;
       if (S.appear === 'pop') { la = clamp((A - i * 0.03) / 0.3, 0, 1); ly = (1 - la) * (1 - la) * size * 0.55; }
@@ -1209,7 +1231,7 @@ function drawWord(w, a, out) {
       // dissolving letters wink out one by one, in a fixed scrambled order
       if (la <= 0 || (dissolving && out > ((w.i * 7 + i * 13) % 17) / 17 * 0.85)) continue;
       g.globalAlpha = am * la * alpha * soft;
-      g.fillText(w.chars[i], x0 + w.xs[i], Math.sin(tt * 2.4 + i * 0.75 + w.i) * size * amp + ly);
+      g.fillText(w.chars[i], x0 + w.xs[i], letterY(i, tt) + ly);
     }
   };
   const blend = S.color === 'blend' && blendPat;
@@ -1219,8 +1241,8 @@ function drawWord(w, a, out) {
     g.fillStyle = 'hsl(' + ((gh + k * 14) % 360) + ',' + es + '%,58%)';
     g.save(); g.scale(1 + k * 0.035, 1 + k * 0.035); pass(k, 0.22 / (1 + k * 0.3)); g.restore();
   }
-  // a glitching word keeps a split cyan and magenta copy until it settles
-  if (S.appear === 'glitch' && A < 0.4) {
+  // a glitching word shows a split cyan and magenta copy
+  if ((S.appear === 'glitch' && A < 0.4) || glitching) {
     g.fillStyle = 'rgba(0,255,255,.7)'; g.save(); g.translate(-size * 0.06, 0); pass(0, 0.5); g.restore();
     g.fillStyle = 'rgba(255,0,170,.7)'; g.save(); g.translate(size * 0.06, 0); pass(0, 0.5); g.restore();
   }
@@ -1815,7 +1837,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && fo
 const STUDIO_DEFAULTS = {
   bg: 'black', glow: true, dim: 0.35,
   font: 'bricolage', textCase: 'asis', color: 'loud', custom: '#ff3d9a', size: 1, glowAmt: 1,
-  appear: 'pop', appearSpeed: 1, disappear: 'float', disappearSpeed: 1,
+  appear: 'pop', appearSpeed: 1, motion: 'wiggle', motionAmt: 1, motionSpeed: 1, disappear: 'float', disappearSpeed: 1,
   layout: 'lines', pos: 'middle', align: 'center', tilt: 0,
   particles: 'sparks', amount: 1, partColor: 'match', every: false, rings: true, shake: true,
 };
@@ -2154,6 +2176,11 @@ const STUDIO_TABS = [
   ['appear', 'Appear', [
     { kind: 'chips', key: 'appear', label: 'Words come in', opts: [['pop', 'Pop'], ['fade', 'Fade'], ['rise', 'Rise'], ['drop', 'Drop'], ['zoom', 'Zoom'], ['spin', 'Spin'], ['type', 'Typewriter'], ['wave', 'Wave'], ['glitch', 'Glitch']] },
     { kind: 'range', key: 'appearSpeed', label: 'Speed', min: 0.5, max: 2, step: 0.1, fmt: times },
+  ]],
+  ['motion', 'Motion', [
+    { kind: 'chips', key: 'motion', label: 'While on screen', opts: [['still', 'Still'], ['wiggle', 'Wiggle'], ['float', 'Float'], ['flow', 'Flow'], ['bounce', 'Bounce'], ['pulse', 'Pulse'], ['swing', 'Swing'], ['shake', 'Shake'], ['glitch', 'Glitch']] },
+    { kind: 'range', key: 'motionAmt', label: 'Strength', min: 0.2, max: 2, step: 0.1, fmt: times },
+    { kind: 'range', key: 'motionSpeed', label: 'Speed', min: 0.25, max: 2.5, step: 0.25, fmt: times },
   ]],
   ['disappear', 'Disappear', [
     { kind: 'chips', key: 'disappear', label: 'Words leave', opts: [['float', 'Float up'], ['fade', 'Fade'], ['fall', 'Fall'], ['shrink', 'Shrink'], ['blow', 'Blow away'], ['shatter', 'Shatter'], ['dissolve', 'Dissolve'], ['cut', 'Cut']] },
