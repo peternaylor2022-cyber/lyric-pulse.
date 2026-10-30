@@ -1739,7 +1739,8 @@ function spHold() { if (spNow) spNow = { progress: spPredict(performance.now()),
 async function poll() {
   clearTimeout(spTimer);
   if (!sp || !following || spBusy) return;
-  let wait = 3000;
+  // a take keeps its own time, so it only needs to hear about a new song: fewer check-ins, less to get in the way of drawing
+  let wait = recFrom ? 10000 : 3000;
   if (!document.hidden) {
     spBusy = true;
     try {
@@ -2658,7 +2659,8 @@ function startRecording(at) {
     }
     recorder.ondataavailable = e => { if (e.data && e.data.size) recChunks.push(e.data); };
     recorder.onstop = finishRecording;
-    recorder.start(1000);
+    // in one piece: recorded in chunks, an iPhone repeats a frame and skips the next at every chunk, once a second
+    recorder.start();
     if (recFrom) recFrom.at = performance.now();
     recStart = performance.now(); recBar.hidden = false; tickRec(); recTimer = setInterval(tickRec, 500);
     // the music starts with the recording, from the picked spot if there is one
