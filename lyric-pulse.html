@@ -2742,8 +2742,151 @@ function finishRecording() {
   const type = (recorder && recorder.mimeType) || recType() || 'video/webm';
   recorder = null;
   endRecordingUI();
-  recBlob = new Blob(recChunks, { type }); recChunks = [];
-  showDone(recBlob);
+  const raw = new Blob(recChunks, { type }); recChunks = [];
+  const plain = type.includes('mp4') ? raw.arrayBuffer().then(buf => { const parts = plainMp4(buf); return parts ? new Blob(parts, { type: 'video/mp4' }) : raw; }) : Promise.resolve(raw);
+  plain.catch(() => raw).then(blob => { recBlob = blob; showDone(blob); });
+}
+/* Phones record a fragmented MP4: its header says 0 seconds and 0 frames, and the timing comes in pieces after it.
+   Photos copes, but editors like TikTok's squeeze every frame into the first moment and hold the last one.
+   This rewrites it as a plain MP4 with every frame's timing up front. Returns the file's parts, or null if it's already plain. */
+function plainMp4(buf) {
+  const u8 = new Uint8Array(buf), dv = new DataView(buf);
+  const name = o => String.fromCharCode(u8[o], u8[o + 1], u8[o + 2], u8[o + 3]);
+  const boxes = (start, end) => {
+    const out = [];
+    for (let o = start; o + 8 <= end;) {
+      let size = dv.getUint32(o), hdr = 8;
+      if (size === 1) { size = Number(dv.getBigUint64(o + 8)); hdr = 16; } else if (size === 0) size = end - o;
+      if (size < hdr || o + size > end) break;
+      out.push({ type: name(o + 4), start: o, body: o + hdr, end: o + size });
+      o += size;
+    }
+    return out;
+  };
+  const kids = b => boxes(b.body, b.end), find = (list, t) => list.find(b => b.type === t);
+  const ver = b => u8[b.body], flags = b => dv.getUint32(b.body) & 0xffffff;
+  const top = boxes(0, u8.length), moov = find(top, 'moov');
+  if (!moov || !top.some(b => b.type === 'moof')) return null;
+  const mk = kids(moov), mvhd = find(mk, 'mvhd'), mvex = find(mk, 'mvex');
+  const movieScale = dv.getUint32(mvhd.body + (ver(mvhd) ? 20 : 12));
+  const trex = {};
+  if (mvex) for (const b of kids(mvex)) if (b.type === 'trex') trex[dv.getUint32(b.body + 4)] = { dur: dv.getUint32(b.body + 12), size: dv.getUint32(b.body + 16), flags: dv.getUint32(b.body + 20) };
+  const tracks = {}, order = [];
+  for (const trak of mk.filter(b => b.type === 'trak')) {
+    const tk = kids(trak), tkhd = find(tk, 'tkhd'), mdhd = find(kids(find(tk, 'mdia')), 'mdhd');
+    const id = dv.getUint32(tkhd.body + (ver(tkhd) ? 20 : 12));
+    tracks[id] = { trak, scale: dv.getUint32(mdhd.body + (ver(mdhd) ? 20 : 12)), samples: [], chunks: [], t: 0, first: null, def: trex[id] || { dur: 0, size: 0, flags: 0 } };
+    order.push(id);
+  }
+  // every fragment's samples: where their bytes are, how long each lasts, which can be started from
+  const chunks = [];
+  for (const moof of top.filter(b => b.type === 'moof')) {
+    let prevEnd = moof.start;
+    for (const traf of kids(moof).filter(b => b.type === 'traf')) {
+      const tb = kids(traf), tfhd = find(tb, 'tfhd'), tfdt = find(tb, 'tfdt'), ff = flags(tfhd), tr = tracks[dv.getUint32(tfhd.body + 4)];
+      if (!tr) continue;
+      let o = tfhd.body + 8, base = ff & 0x20000 ? moof.start : prevEnd;
+      if (ff & 0x1) { base = Number(dv.getBigUint64(o)); o += 8; }
+      if (ff & 0x2) o += 4;
+      const dDur = ff & 0x8 ? dv.getUint32((o += 4) - 4) : tr.def.dur;
+      const dSize = ff & 0x10 ? dv.getUint32((o += 4) - 4) : tr.def.size;
+      const dFlags = ff & 0x20 ? dv.getUint32((o += 4) - 4) : tr.def.flags;
+      if (tfdt) {
+        const at = ver(tfdt) ? Number(dv.getBigUint64(tfdt.body + 4)) : dv.getUint32(tfdt.body + 4);
+        if (tr.first == null) { tr.first = at; tr.t = at; }
+        // fragments say exactly when they start: stretch or trim the frame before so nothing drifts
+        const last = tr.samples[tr.samples.length - 1];
+        if (last) { last.dur = Math.max(0, at - (tr.t - last.dur)); tr.t = at; }
+      }
+      if (tr.first == null) tr.first = 0;
+      let pos = base;
+      for (const trun of tb.filter(b => b.type === 'trun')) {
+        const rf = flags(trun), n = dv.getUint32(trun.body + 4);
+        let q = trun.body + 8;
+        if (rf & 0x1) { pos = base + dv.getInt32(q); q += 4; }
+        let firstFlags = null;
+        if (rf & 0x4) { firstFlags = dv.getUint32(q); q += 4; }
+        const chunk = { samples: [] };
+        for (let i = 0; i < n; i++) {
+          const dur = rf & 0x100 ? dv.getUint32((q += 4) - 4) : dDur;
+          const size = rf & 0x200 ? dv.getUint32((q += 4) - 4) : dSize;
+          let sf = rf & 0x400 ? dv.getUint32((q += 4) - 4) : dFlags;
+          if (i === 0 && firstFlags != null) sf = firstFlags;
+          const cto = rf & 0x800 ? (ver(trun) ? dv.getInt32((q += 4) - 4) : dv.getUint32((q += 4) - 4)) : 0;
+          const smp = { pos, size, dur, sync: !(sf & 0x10000), cto };
+          tr.samples.push(smp); chunk.samples.push(smp);
+          pos += size; tr.t += dur;
+        }
+        if (n) { tr.chunks.push(chunk); chunks.push(chunk); }
+      }
+      prevEnd = pos;
+    }
+  }
+  const live = order.filter(id => tracks[id].samples.length);
+  if (!live.length) return null;
+  // the new file: header, then every frame's bytes in the order they came
+  const be32 = v => { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, v >>> 0); return b; };
+  const cat = parts => { let n = 0; for (const p of parts) n += p.length; const o = new Uint8Array(n); n = 0; for (const p of parts) { o.set(p, n); n += p.length; } return o; };
+  const box = (type, ...parts) => { const body = cat(parts), o = new Uint8Array(8 + body.length); new DataView(o.buffer).setUint32(0, o.length); for (let i = 0; i < 4; i++) o[4 + i] = type.charCodeAt(i); o.set(body, 8); return o; };
+  const full = (type, v, fl, ...parts) => box(type, be32((v << 24) | fl), ...parts);
+  const copy = b => u8.slice(b.start, b.end);
+  // patch a duration field inside a copied box (32-bit in version 0 boxes, 64-bit in version 1)
+  const setDur = (b, at0, at1, v) => { const c = copy(b), d = new DataView(c.buffer), o = b.body - b.start; if (c[o]) d.setBigUint64(o + at1, BigInt(v)); else d.setUint32(o + at0, v); return c; };
+  const runs = vals => { const out = []; for (const v of vals) { const r = out[out.length - 1]; if (r && r[1] === v) r[0]++; else out.push([1, v]); } return out; };
+  const tag = t => new TextEncoder().encode(t);
+  const ftyp = box('ftyp', tag('isom'), be32(0x200), tag('isom'), tag('iso2'), tag('avc1'), tag('mp41'));
+  const start = Math.min(...live.map(id => tracks[id].first / tracks[id].scale));
+  const mdatSize = chunks.reduce((n, c) => n + c.samples.reduce((m, s) => m + s.size, 0), 0);
+  const buildMoov = offsets => {
+    let movieDur = 0;
+    const traks = live.map(id => {
+      const tr = tracks[id], tk = kids(tr.trak), smp = tr.samples;
+      const mediaDur = smp.reduce((n, s) => n + s.dur, 0);
+      const delay = Math.round((tr.first / tr.scale - start) * movieScale), lead = smp[0].cto > 0 ? smp[0].cto : 0;
+      const editDur = Math.round((mediaDur - lead) / tr.scale * movieScale);
+      movieDur = Math.max(movieDur, delay + editDur);
+      const elst = [];
+      if (delay > 0) elst.push(be32(delay), be32(-1), be32(0x10000));
+      elst.push(be32(editDur), be32(lead), be32(0x10000));
+      const parts = [];
+      for (const b of tk) {
+        if (b.type === 'tkhd') { const c = setDur(b, 20, 28, editDur + delay); c[b.body - b.start + 3] |= 3; parts.push(c, box('edts', full('elst', 0, 0, be32(elst.length / 3), ...elst))); }
+        else if (b.type === 'mdia') {
+          parts.push(box('mdia', ...kids(b).map(m => {
+            if (m.type === 'mdhd') return setDur(m, 16, 24, mediaDur);
+            if (m.type !== 'minf') return copy(m);
+            return box('minf', ...kids(m).map(x => {
+              if (x.type !== 'stbl') return copy(x);
+              const stsd = find(kids(x), 'stsd'), t = [copy(stsd)];
+              const tts = runs(smp.map(s => s.dur));
+              t.push(full('stts', 0, 0, be32(tts.length), ...tts.flatMap(([c, v]) => [be32(c), be32(v)])));
+              if (smp.some(s => s.cto)) { const ct = runs(smp.map(s => s.cto)); t.push(full('ctts', smp.some(s => s.cto < 0) ? 1 : 0, 0, be32(ct.length), ...ct.flatMap(([c, v]) => [be32(c), be32(v)]))); }
+              if (!smp.every(s => s.sync)) { const ss = []; smp.forEach((s, i) => { if (s.sync) ss.push(be32(i + 1)); }); t.push(full('stss', 0, 0, be32(ss.length), ...ss)); }
+              const sc = []; let prev = -1;
+              tr.chunks.forEach((c, i) => { if (c.samples.length !== prev) { sc.push(be32(i + 1), be32(c.samples.length), be32(1)); prev = c.samples.length; } });
+              t.push(full('stsc', 0, 0, be32(sc.length / 3), ...sc));
+              t.push(full('stsz', 0, 0, be32(0), be32(smp.length), ...smp.map(s => be32(s.size))));
+              const offs = tr.chunks.map(c => offsets.get(c) || 0);
+              t.push(full('stco', 0, 0, be32(offs.length), ...offs.map(be32)));
+              return box('stbl', ...t);
+            }));
+          })));
+        } else if (b.type !== 'edts') parts.push(copy(b));
+      }
+      return box('trak', ...parts);
+    });
+    const rest = mk.filter(b => b.type !== 'mvhd' && b.type !== 'trak' && b.type !== 'mvex').map(copy);
+    return box('moov', setDur(mvhd, 16, 24, movieDur), ...traks, ...rest);
+  };
+  // the header's size doesn't depend on the offsets in it, so build it once to measure, then for real
+  const head = ftyp.length + buildMoov(new Map()).length + 8;
+  const offsets = new Map();
+  let at = head;
+  for (const c of chunks) { offsets.set(c, at); at += c.samples.reduce((m, s) => m + s.size, 0); }
+  const data = new Uint8Array(mdatSize);
+  let w = 0;
+  for (const c of chunks) for (const s of c.samples) { data.set(u8.subarray(s.pos, s.pos + s.size), w); w += s.size; }
+  return [ftyp, buildMoov(offsets), cat([be32(8 + mdatSize), tag('mdat')]), data];
 }
 function endRecordingUI() {
   clearInterval(recTimer); recBar.hidden = true; recFrom = null;
