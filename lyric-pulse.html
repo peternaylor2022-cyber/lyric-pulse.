@@ -501,6 +501,24 @@ body.in-studio .studio { transform: none; visibility: visible; transition-delay:
 .st-bgs .pad { flex-direction: column; gap: 7px; min-height: 0; padding: 7px 6px 9px; font-size: 10px; letter-spacing: .04em; }
 .st-bgs canvas { display: block; width: 54px; height: 96px; border-radius: 5px; background: #000; box-shadow: 0 0 0 1px #000, 0 2px 6px rgba(0, 0, 0, .7); }
 .st-plus { display: grid; place-items: center; width: 54px; height: 96px; border-radius: 5px; border: 1px dashed #5a4b78; font: 300 28px/1 var(--display); color: var(--muted); }
+.st-save { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+.st-name { min-width: 0; height: 46px; padding: 0 12px; border: 1px solid #3c3155; border-radius: 10px; background: #05030a; color: var(--fg); font: 500 16px/1 var(--display); }
+.st-name::placeholder { color: #6f6690; }
+.st-name:focus-visible { outline: 2px solid var(--violet); outline-offset: 2px; }
+.st-save .pad { min-height: 46px; padding: 0 20px; }
+.st-empty { margin: 0; font: 400 13px/1.45 var(--display); color: var(--muted); }
+.st-look { position: relative; display: grid; min-width: 0; }
+.st-look > .pad { min-width: 0; }
+.st-look > .pad span { max-width: 100%; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; text-align: center; }
+.st-del {
+  position: absolute; top: -8px; right: -8px; z-index: 1; display: grid; place-items: center;
+  min-width: 26px; height: 26px; padding: 0 7px; border: 1px solid #3c3155; border-radius: 13px;
+  background: #17121f; color: var(--muted); font: 600 15px/1 var(--mono); cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .7);
+}
+.st-del::before { content: ""; position: absolute; inset: -9px; }   /* a bigger target for a thumb */
+.st-del:focus-visible { outline: 2px solid var(--violet); outline-offset: 2px; }
+.st-del.armed { background: var(--accent); border-color: var(--accent); color: #fff; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
 .st-color { display: block; width: 100%; height: 44px; padding: 4px; border: 1px solid #3c3155; border-radius: 10px; background: #05030a; cursor: pointer; }
 .st-foot {
   flex: none; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px;
@@ -2275,9 +2293,107 @@ function usePhoto(blob) {
   });
 }
 
+/* presets: whole looks saved under a name, plus a few to start from */
+const LOOKS = [
+  { id: 'club', name: 'Neon club', s: { bg: 'crowd', font: 'monoton', appear: 'zoom', motion: 'pulse' } },
+  { id: 'drive', name: 'Night drive', s: { bg: 'synth', font: 'bungee', textCase: 'upper', color: 'ice', appear: 'rise', motion: 'flow', disappear: 'blow', particles: 'stars' } },
+  { id: 'dream', name: 'Dreamy', s: { bg: 'ocean', font: 'playfair', color: 'blend', appear: 'fade', appearSpeed: 0.7, motion: 'float', disappear: 'dissolve', particles: 'bubbles', amount: 0.75, rings: false, shake: false } },
+  { id: 'glitch', name: 'Glitchcore', s: { bg: 'city', font: 'glitch', textCase: 'upper', color: 'white', appear: 'glitch', motion: 'glitch', disappear: 'shatter', particles: 'none' } },
+  { id: 'loud', name: 'Big & loud', s: { font: 'anton', textCase: 'upper', color: 'white', size: 1.4, layout: 'word', appear: 'drop', motion: 'shake', disappear: 'cut', particles: 'confetti', amount: 1.5 } },
+  { id: 'love', name: 'Love song', s: { bg: 'space', font: 'pacifico', color: 'pink', appear: 'wave', motion: 'swing', particles: 'hearts' } },
+  { id: 'camp', name: 'Campfire', s: { bg: 'field', font: 'caveat', color: 'gold', size: 1.15, appear: 'type', motion: 'still', disappear: 'fade', particles: 'embers', shake: false } },
+  { id: 'alley', name: 'Back alley', s: { bg: 'alley', font: 'marker', textCase: 'upper', color: 'lime', layout: 'scatter', appear: 'spin', motion: 'bounce', disappear: 'fall', particles: 'smoke' } },
+];
+let looks = [], looksVer = 0;   // the ones you saved, oldest first
+try { looks = JSON.parse(store.get('lp.looks')) || []; } catch (e) {}
+const saveLooks = () => { store.set('lp.looks', JSON.stringify(looks)); looksVer++; };
+const lookOf = s => Object.assign({}, STUDIO_DEFAULTS, s);
+const currentLook = () => Object.fromEntries(Object.keys(STUDIO_DEFAULTS).map(k => [k, S[k]]));
+// the custom color only counts when it's in use, and the darkening only with a photo
+const sameLook = (a, b) => Object.keys(STUDIO_DEFAULTS).every(k => a[k] === b[k] || k === 'custom' && a.color !== 'custom' || k === 'dim' && a.bg !== 'photo');
+const lookImgs = new Map();   // a saved look's own photo, for its thumbnail
+let photoLook = store.get('lp.photoLook');   // the saved look the current photo came from
+const setPhotoLook = id => { photoLook = id; store.set('lp.photoLook', id); };
+const isLook = look => sameLook(S, lookOf(look.s)) && (!look.photo || photoLook === look.id);
+// saving under a name that's taken updates that preset
+async function saveLook(name) {
+  name = name.trim().slice(0, 24);
+  if (!name) { let n = looks.length + 1; while (looks.some(l => l.name === 'Look ' + n)) n++; name = 'Look ' + n; }
+  const old = looks.find(l => l.name.toLowerCase() === name.toLowerCase());
+  const look = { id: old ? old.id : Date.now().toString(36), name, s: currentLook(), photo: S.bg === 'photo' };
+  // a look with your photo keeps its own copy, so uploading another one later doesn't change it
+  if (look.photo) {
+    const b = await idb('readonly', st => st.get('photo')).catch(() => null);
+    if (b) { await idb('readwrite', st => st.put(b, 'look-' + look.id)).catch(() => {}); lookImgs.delete(look.id); setPhotoLook(look.id); }
+    else look.photo = false;
+  }
+  if (old) looks[looks.indexOf(old)] = look; else looks.push(look);
+  saveLooks(); refreshStudio();
+  return (old ? 'Updated ' : 'Saved ') + name;
+}
+async function useLook(look) {
+  const s = lookOf(look.s);
+  if (look.photo) {
+    const b = await idb('readonly', st => st.get('look-' + look.id)).catch(() => null);
+    if (b) { await usePhoto(b).catch(() => {}); idb('readwrite', st => st.put(b, 'photo')).catch(() => {}); setPhotoLook(look.id); }
+  }
+  if (!SCENES[s.bg] || s.bg === 'photo' && !photo) s.bg = 'black';
+  S = s; saveStudio(); loadFont(fontOf()); epoch++; refreshStudio();
+}
+function deleteLook(look) {
+  looks = looks.filter(l => l !== look); saveLooks();
+  if (look.photo) { idb('readwrite', st => st.delete('look-' + look.id)).catch(() => {}); lookImgs.delete(look.id); }
+  refreshStudio();
+}
+// a look in miniature: its scene, with a word in its font, color and spot
+function lookThumb(c, s, img) {
+  const keepS = S, keepPhoto = photo;
+  S = s; if (img) photo = img;
+  try { thumb(c, SCENES[s.bg] ? s.bg : 'black'); } finally { S = keepS; photo = keepPhoto; }
+  const x = c.getContext('2d'), w = 54, h = 96, f = FONTS[s.font] || FONTS.bricolage;
+  const word = s.textCase === 'upper' ? 'HEY' : s.textCase === 'lower' ? 'hey' : 'Hey';
+  x.font = fontCss(f, f.vary ? 700 : f.weight, 15 * s.size);
+  x.textAlign = s.align; x.textBaseline = 'middle';
+  x.save();
+  x.translate(s.align === 'left' ? 7 : s.align === 'right' ? w - 7 : w / 2, s.pos === 'top' ? h * 0.27 : s.pos === 'bottom' ? h * 0.73 : h / 2);
+  x.rotate(s.tilt * Math.PI / 180);
+  let fill = s.color === 'custom' ? s.custom : s.color === 'white' ? '#fff' : s.color === 'blend' ? '#ffd2b8' : COLORS[s.color];
+  if (!fill) {
+    fill = x.createLinearGradient(-26, 0, 26, 0);
+    const stops = s.color === 'rainbow' ? ['#ff4d4d', '#ffe14d', '#4dff88', '#4dc3ff', '#c44dff'] : ['#9b82ff', '#ff3d9a', '#ff8a3d'];
+    stops.forEach((col, i) => fill.addColorStop(i / (stops.length - 1), col));
+  }
+  x.shadowColor = typeof fill === 'string' ? fill : '#ff3d9a'; x.shadowBlur = 6 * s.glowAmt;
+  x.fillStyle = fill; x.fillText(word, 0, 0);
+  x.restore();
+}
+function drawLookCard(cd) {
+  const { look, c } = cd, s = lookOf(look.s), img = look.photo ? lookImgs.get(look.id) : null;
+  if (look.photo && !lookImgs.has(look.id)) {
+    lookImgs.set(look.id, null);
+    idb('readonly', st => st.get('look-' + look.id)).then(b => {
+      if (!b) return;
+      const im = new Image();
+      im.onload = () => { lookImgs.set(look.id, im); cd.key = ''; drawLookCard(cd); };
+      im.src = URL.createObjectURL(b);
+    }).catch(() => {});
+  }
+  const key = JSON.stringify(s) + '|' + !!img + '|' + photoVer;
+  if (cd.key === key) return;
+  cd.key = key;
+  lookThumb(c, s, img);
+  // canvas text doesn't wait for a web font, so draw again once it's in
+  const f = FONTS[s.font] || FONTS.bricolage, css = fontCss(f, f.vary ? 700 : f.weight, 15);
+  if (!cd.fontAsked && !document.fonts.check(css)) { cd.fontAsked = true; document.fonts.load(css).then(() => { cd.key = ''; drawLookCard(cd); }).catch(() => {}); }
+}
+
 /* the studio's settings, as tabs of controls */
 const pct = v => Math.round(v * 100) + '%', times = v => (+v).toFixed(v % 1 ? 2 : 0).replace(/0$/, '') + '×';
 const STUDIO_TABS = [
+  ['looks', 'Presets', [
+    { kind: 'looks', label: 'Your presets', mine: true },
+    { kind: 'looks', label: 'Starter looks' },
+  ]],
   ['bg', 'Background', [
     { kind: 'bgs', label: 'Scene' },
     { kind: 'range', key: 'dim', label: 'Darken photo', min: 0, max: 0.8, step: 0.05, fmt: pct, only: () => S.bg === 'photo' },
@@ -2320,7 +2436,7 @@ const STUDIO_TABS = [
   ]],
 ];
 const studioViews = [];   // each control's refresh, run after any change
-let studioTab = 'bg', studioOpen = false;
+let studioTab = 'looks', studioOpen = false;
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
 function setStudio(key, val) {
   S[key] = val; saveStudio();
@@ -2360,7 +2476,7 @@ function buildGroup(gp) {
       const f = input.files && input.files[0];
       input.value = '';
       if (!f) return;
-      usePhoto(f).then(() => { setStudio('bg', 'photo'); idb('readwrite', s => s.put(f, 'photo')).catch(() => {}); }).catch(() => {});
+      usePhoto(f).then(() => { setPhotoLook(null); setStudio('bg', 'photo'); idb('readwrite', s => s.put(f, 'photo')).catch(() => {}); }).catch(() => {});
     };
     box.append(grid);
     studioViews.push(() => {
@@ -2405,6 +2521,58 @@ function buildGroup(gp) {
     input.oninput = () => setStudio(gp.key, input.value);
     box.append(input);
     studioViews.push(() => { input.value = S[gp.key]; });
+  } else if (gp.kind === 'looks') {
+    const grid = el('div', 'st-chips st-bgs'), cards = [];
+    let empty = null, ver = -1;
+    if (gp.mine) {
+      const form = el('form', 'st-save'), input = el('input', 'st-name'), save = el('button', 'pad hot', 'Save'), note = el('output');
+      input.id = 'stLookName'; input.maxLength = 24; input.placeholder = 'Name this look'; input.autocomplete = 'off'; input.enterKeyHint = 'done';
+      input.setAttribute('aria-label', 'Preset name'); save.type = 'submit'; save.id = 'stLookSave';
+      note.setAttribute('aria-live', 'polite'); head.append(note);
+      form.onsubmit = e => {
+        e.preventDefault(); input.blur();
+        saveLook(input.value).then(msg => {
+          input.value = ''; note.textContent = msg;
+          clearTimeout(note._t); note._t = setTimeout(() => { note.textContent = ''; }, 2500);
+        });
+      };
+      form.append(input, save);
+      empty = el('p', 'st-empty', 'Nothing saved yet. Set up a look in the other tabs, then name it and save it here.');
+      box.append(form, empty);
+    }
+    box.append(grid);
+    const card = look => {
+      const wrap = el('div', 'st-look'), b = el('button', 'pad'), c = el('canvas'); b.type = 'button';
+      b.append(c, el('span', '', look.name)); b.onclick = () => useLook(look);
+      wrap.append(b);
+      if (gp.mine) {
+        const del = el('button', 'st-del', '×'); del.type = 'button';
+        const disarm = () => { del.classList.remove('armed'); del.textContent = '×'; del.setAttribute('aria-label', 'Delete ' + look.name); };
+        disarm();
+        // two taps, so a slip doesn't lose a look
+        del.onclick = () => {
+          if (del.classList.contains('armed')) { deleteLook(look); return; }
+          del.classList.add('armed'); del.textContent = 'Delete'; del.setAttribute('aria-label', 'Press again to delete ' + look.name);
+          setTimeout(disarm, 3000);
+        };
+        wrap.append(del);
+      }
+      grid.append(wrap);
+      return { look, b, c, key: '' };
+    };
+    studioViews.push(() => {
+      if (ver !== (gp.mine ? looksVer : 0)) {
+        ver = gp.mine ? looksVer : 0;
+        grid.textContent = ''; cards.length = 0;
+        for (const look of gp.mine ? looks.slice().reverse() : LOOKS) cards.push(card(look));   // newest first
+        if (empty) empty.hidden = looks.length > 0;
+        grid.hidden = !cards.length;
+      }
+      for (const cd of cards) {
+        pressable(cd.b, isLook(cd.look));
+        if (studioOpen) drawLookCard(cd);   // thumbnails load fonts, so only once the studio is open
+      }
+    });
   }
   if (gp.only) studioViews.push(() => { box.hidden = !gp.only(); });
   return box;
